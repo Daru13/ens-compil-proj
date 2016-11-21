@@ -1,6 +1,6 @@
 {
 	(* TODO: à retirer, utiliser les types induits par les tokens du parser à la place *)
-	open Types 
+	open Tokens
 	open Big_int
 
 	(* Liste des mots-clés réservés *)
@@ -55,7 +55,8 @@ let ident = letter (letter | digit | '_')*
 let number = digit+
 
 (* Blancs *)
-let whitespace = [' ' '\t' '\n']+
+let whitespace  = [' ' '\t']+
+let newline 	= ['\n']
 
 (* Début et fin de commentaire *)
 let comment_begin 	= "--"
@@ -65,6 +66,7 @@ let comment_end 	= '\n'
 
 rule token = parse
 | whitespace 		{ token lexbuf }
+| newline 			{ Lexing.new_line lexbuf; token lexbuf }
 | comment_begin 	{ comment lexbuf }
 
 | ";" 				{ SEMICOLON }

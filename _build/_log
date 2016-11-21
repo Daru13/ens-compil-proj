@@ -5,14 +5,9 @@
 /usr/bin/ocamllex -q lexer.mll # cached
 # Target: lexer.ml.depends, tags: { extension:ml, file:lexer.ml, ocaml, ocamldep, quiet }
 /usr/bin/ocamldep -modules lexer.ml > lexer.ml.depends # cached
-# Target: types.ml.depends, tags: { extension:ml, file:types.ml, ocaml, ocamldep, quiet }
-/usr/bin/ocamldep -modules types.ml > types.ml.depends # cached
-# Target: types.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:types.cmo, file:types.ml, implem, ocaml, quiet }
-/usr/bin/ocamlc -c -o types.cmo types.ml # cached
-# Target: lexer.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:lexer.cmo, file:lexer.ml, implem, ocaml, quiet }
-/usr/bin/ocamlc -c -o lexer.cmo lexer.ml # cached
-# Target: lexing_tester.cmo, tags: { byte, compile, extension:cmo, extension:ml, file:lexing_tester.cmo, file:lexing_tester.ml, implem, ocaml, quiet }
-/usr/bin/ocamlc -c -o lexing_tester.cmo lexing_tester.ml # cached
-# Target: lexing_tester.byte, tags: { byte, dont_link_with, extension:byte, file:lexing_tester.byte, link, ocaml, program, quiet }
-/usr/bin/ocamlc nums.cma types.cmo lexer.cmo lexing_tester.cmo -o lexing_tester.byte
-# Compilation successful.
+# Target: tokens.mly.depends, tags: { extension:mly, file:tokens.mly, infer, menhir_ocamldep, ocaml, ocamldep, quiet }
+-external-tokens Tokens --raw-depend --ocamldep '/usr/bin/ocamldep -modules' tokens.mly > tokens.mly.depends
++ -external-tokens Tokens --raw-depend --ocamldep '/usr/bin/ocamldep -modules' tokens.mly > tokens.mly.depends
+/bin/sh: 0: Illegal option -t
+Command exited with code 2.
+# Compilation unsuccessful.

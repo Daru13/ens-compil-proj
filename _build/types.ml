@@ -1,5 +1,9 @@
 (* Types OCaml utilisés par l'analyseur lexical *)
 
+(* Note pour Anatole : ancien fichier, pas à jour,
+   et très prochainement inutile !
+   Voir "tokens.mly" à la place. *)
+
 type comparator =
 | COMP_EQ
 | COMP_DIFF
@@ -51,7 +55,7 @@ type token =
 | TOK_KW_WHILE 
 | TOK_KW_WITH
 | TOK_OP_PLUS
-| TOK_OP_MINUS 			(* Moins binaire/générique ? *)
+| TOK_OP_MINUS 			(* Moins binaire *)
 | TOK_OP_TIMES
 | TOK_OP_DIV
 | TOK_OP_REM
