@@ -1,3 +1,57 @@
+%{
+
+%}
+
+(* Symboles terminaux *)
+
+%token <string> ID
+%token <int> INT
+%token <char> CHAR
+%token EOF
+
+%token SEMICOLON 			(* ; *)
+%token COMMA 				(* , *)
+%token OPEN_PARENTHESIS 	(* ( *)
+%token CLOSE_PARENTHESIS	(* ) *)
+%token COLON 				(* : *)
+%token COLON_EQUAL 			(* := *)
+%token TWO_DOTS				(* .. *)
+
+%token ACCESS BEGIN ELSE ELSIF END FALSE FOR FUNCTION IF IN ISLOOP NEW NULL OUT PROCEDURE RECORD RETURN REVERSE THEN TRUE TYPE USE WHILE WITH
+
+%token OR OR_ELSE
+%token AND AND_THEN
+%token NOT
+%token EQUAL DIFFERENT
+%token <Ast.comparator> COMPARATOR
+%token PLUS MINUS
+%token TIMES DIV REM
+%token NEG
+%token DOT 					(* . *)
+
+%left OR OR_ELSE
+%left AND AND_THEN
+%left PLUS MINUS
+%left TIMES DIV REM
+%left DOT
+
+(* Symboles non-terminaux *)
+
+%type <Ast.program> program
+%type <Ast.declaration> declaration
+%type <Ast.fields> fields
+%type <Ast.ty> ty
+%type <Ast.params> parameters
+%type <Ast.param> parameter
+%type <Ast.mode> mode
+%type <Ast.expression> expression
+%type <Ast.instruction> instruction
+%type <Ast.binop> operator
+%type <Ast.access> access
+
+%start program
+
+%%
 
 program:
   WITH; id_ada_io_1 = ID; SEMICOLON;
@@ -22,7 +76,7 @@ declaration:
   {
 
   }
-| ids_l = separated_nonempty_list(COMMA, ID); COLON; t = type;
+| ids_l = separated_nonempty_list(COMMA, ID); COLON; t = ty;
   option(COLON_EQUAL; expr = expression); SEMICOLON;
   {
 
@@ -33,19 +87,19 @@ declaration:
 
   }
 | FUNCTION; id_func_1 = ID; param_l = parameters?; IS;
-  RETURN; t = type; IS; decl_l = declaration*;
+  RETURN; t = ty; IS; decl_l = declaration*;
   BEGIN; instr_l = instruction+; END; id_func_2 = ID?; SEMICOLON;
   {
 
   }
 
 fields:
-  ids_l = separated_nonempty_list(COMMA, ID); COLON; t = type; SEMICOLON;
+  ids_l = separated_nonempty_list(COMMA, ID); COLON; t = ty; SEMICOLON;
   {
 
   }
 
-type:
+ty:
 | id = ID;
   {
 
@@ -65,7 +119,7 @@ parameters:
 
 parameter:
   ids_l = separated_nonempty_list(COMMA, ID);
-  COLON; m = mode?; t = type;
+  COLON; m = mode?; t = ty;
   {
 
   }

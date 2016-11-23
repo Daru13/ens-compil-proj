@@ -51,13 +51,14 @@ type ty =
 | Ty_var of ident
 | Ty_access of ident
 		 
-type field = ident list * ty
+type fields = ident list * ty
 
 type mode =
 | Mod_in
 | Mod_inOut
 
-type params = (ident list * mode option * ty) list
+type param  = ident list * mode option * ty
+type params = param list
 
 type access =
 | Acc_var of ident
@@ -66,7 +67,7 @@ type access =
 and declaration =
 | Decl_type of ident
 | Decl_access of ident * ident
-| Decl_record of ident * field list
+| Decl_record of ident * fields list
 | Decl_vars of ident list * ident * expression option
 | Decl_procedure of ident * params * declaration list * instruction list
 | Decl_function of ident * params * ty * declaration list * instruction list
