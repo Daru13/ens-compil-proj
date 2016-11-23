@@ -6,8 +6,9 @@
 # Target: lexer.ml.depends, tags: { extension:ml, file:lexer.ml, ocaml, ocamldep, quiet }
 /usr/bin/ocamldep -modules lexer.ml > lexer.ml.depends # cached
 # Target: tokens.mly.depends, tags: { extension:mly, file:tokens.mly, infer, menhir_ocamldep, ocaml, ocamldep, quiet }
--external-tokens Tokens --raw-depend --ocamldep '/usr/bin/ocamldep -modules' tokens.mly > tokens.mly.depends
-+ -external-tokens Tokens --raw-depend --ocamldep '/usr/bin/ocamldep -modules' tokens.mly > tokens.mly.depends
-/bin/sh: 0: Illegal option -t
-Command exited with code 2.
+menhir --raw-depend --ocamldep '/usr/bin/ocamldep -modules' tokens.mly > tokens.mly.depends
++ menhir --raw-depend --ocamldep '/usr/bin/ocamldep -modules' tokens.mly > tokens.mly.depends
+File "tokens.mly", line 10, characters 21-28:
+Error: the start symbol program is undefined.
+Command exited with code 1.
 # Compilation unsuccessful.

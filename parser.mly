@@ -1,4 +1,3 @@
-%%
 
 program:
   WITH; id_ada_io_1 = ID; SEMICOLON;
