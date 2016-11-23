@@ -3,10 +3,10 @@
 type ident = string
 
 type comparator =
-  |Greater_than
-  |Greater_eq
-  |Less_than
-  |Less_eq
+| Greater_than
+| Greater_eq
+| Less_than
+| Less_eq
 
      
 (****** EXPRESSIONS ******)
@@ -18,7 +18,7 @@ type binop =
 | BinOp_plus
 | BinOp_minus
 | BinOp_multiply
-| BInOp_divide
+| BinOp_divide
 | BinOp_remainder
 | BinOp_and
 | BinOp_andThen
@@ -33,7 +33,8 @@ type expression = {
 	value : expr_value;
 	pos : Lexing.position * Lexing.position
 }
- and expr_value =
+
+and expr_value =
 | Expr_int of int
 | Expr_char of char
 | Expr_bool of bool
@@ -47,6 +48,7 @@ type expression = {
 
 
 (****** DECLARATIONS AND INSTRUCTIONS ******)
+
 type ty =
 | Ty_var of ident
 | Ty_access of ident
@@ -76,10 +78,10 @@ and instruction =
 | Instr_set of access * expression
 | Instr_call of ident * expression list
 | Instr_return of expression option
-| Instr_if of (expression * instruction list) list
-| Instr_for of ident * expression * expression * instruction list
-| Instr_while of expression * instruction list
-
+| Instr_block of instruction list
+| Instr_if of (expression * Instr_block) list * Instr_block
+| Instr_for of ident * bool * expression * expression * Instr_block
+| Instr_while of expression * Instr_block
 
 
 (****** PROGRAMME MINI-ADA ******)
