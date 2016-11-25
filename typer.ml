@@ -26,7 +26,7 @@ let rec type_expr e m =
     |BinOp_compare _ -> begin match t,u with
 			      |Integer,Integer -> Boolean
 			      |_ -> error end
-    |BinOp_plus|BinOp_minus|BinOp_multiply|BInOp_divide|BinOp_remainder ->
+    |BinOp_plus|BinOp_minus|BinOp_multiply|BinOp_divide|BinOp_remainder ->
 							 begin match t,u with
 							       |Integer,Integer -> Integer
 							       |_ -> error end

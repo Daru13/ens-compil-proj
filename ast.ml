@@ -1,5 +1,7 @@
 (* Syntaxe abstraite de Mini-ADA *)
 
+type position = Lexing.position*Lexing.position
+				  
 type ident = string
 
 type comparator =
@@ -31,7 +33,7 @@ type unop =
     
 type expression = {
 	value : expr_value;
-	pos : Lexing.position * Lexing.position
+	pos : position
 }
 
 and expr_value =
@@ -44,7 +46,8 @@ and expr_value =
 | Expr_unop of unop * expression
 | Expr_new of ident
 | Expr_call of ident * expression list
-(* TODO : dernière option à ajouter ? *)
+| Expr_ascii of expression (* character'val *)
+
 
 
 (****** DECLARATIONS AND INSTRUCTIONS ******)
@@ -66,7 +69,11 @@ type access =
 | Acc_var of ident
 | Acc_field of expression * ident
 			      
-and declaration =
+ and declaration = {
+   value : decl_value;
+   pos : position
+ }
+ and decl_value =
 | Decl_type of ident
 | Decl_access of ident * ident
 | Decl_record of ident * fields list
@@ -74,14 +81,18 @@ and declaration =
 | Decl_procedure of ident * params * declaration list * instruction list
 | Decl_function of ident * params * ty * declaration list * instruction list
 
-and instruction =
+and instr_block = instruction list
+and instruction = {
+  value : instr_value;
+  pos : position
+}
+and instr_value =
 | Instr_set of access * expression
 | Instr_call of ident * expression list
 | Instr_return of expression option
-| Instr_block of instruction list
-| Instr_if of (expression * Instr_block) list * Instr_block
-| Instr_for of ident * bool * expression * expression * Instr_block
-| Instr_while of expression * Instr_block
+| Instr_if of (expression * instr_block) list * instr_block
+| Instr_for of ident * bool * expression * expression * instr_block
+| Instr_while of expression * instr_block
 
 
 (****** PROGRAMME MINI-ADA ******)
