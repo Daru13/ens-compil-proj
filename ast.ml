@@ -1,6 +1,6 @@
 (* Syntaxe abstraite de Mini-ADA *)
 
-type position = Lexing.position*Lexing.position
+type position = Lexing.position * Lexing.position
 				  
 type ident = string
 
@@ -36,12 +36,16 @@ type expression = {
 	pos : position
 }
 
+and access_var =
+| Acc_var of ident
+| Acc_field of expression * ident
+
 and expr_value =
 | Expr_int of int
 | Expr_char of char
 | Expr_bool of bool
 | Expr_null
-| Expr_access of ident
+| Expr_access of access_var
 | Expr_binop of expression * binop * expression
 | Expr_unop of unop * expression
 | Expr_new of ident
@@ -65,15 +69,12 @@ type mode =
 type param  = ident list * mode option * ty
 type params = param list
 
-type access =
-| Acc_var of ident
-| Acc_field of expression * ident
-			      
- and declaration = {
+and declaration = {
    value : decl_value;
    pos : position
- }
- and decl_value =
+}
+
+and decl_value =
 | Decl_type of ident
 | Decl_access of ident * ident
 | Decl_record of ident * fields list
@@ -86,8 +87,9 @@ and instruction = {
   value : instr_value;
   pos : position
 }
+
 and instr_value =
-| Instr_set of access * expression
+| Instr_set of access_var * expression
 | Instr_call of ident * expression list
 | Instr_return of expression option
 | Instr_if of (expression * instr_block) list * instr_block
