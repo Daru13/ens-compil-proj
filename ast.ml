@@ -36,7 +36,7 @@ type expression = {
 	pos : position
 }
 
-and access_var =
+and var_or_field =
 | Acc_var of ident
 | Acc_field of expression * ident
 
@@ -45,7 +45,7 @@ and expr_value =
 | Expr_char of char
 | Expr_bool of bool
 | Expr_null
-| Expr_access of access_var
+| Expr_access of var_or_field
 | Expr_binop of expression * binop * expression
 | Expr_unop of unop * expression
 | Expr_new of ident
@@ -82,19 +82,20 @@ and decl_value =
 | Decl_procedure of ident * params * declaration list * instruction list
 | Decl_function of ident * params * ty * declaration list * instruction list
 
-and instr_block = instruction list
+and instr_list = instruction list
 and instruction = {
   value : instr_value;
   pos : position
 }
 
 and instr_value =
-| Instr_set of access_var * expression
+| Instr_set of var_or_field * expression
 | Instr_call of ident * expression list
 | Instr_return of expression option
-| Instr_if of (expression * instr_block) list * instr_block
-| Instr_for of ident * bool * expression * expression * instr_block
-| Instr_while of expression * instr_block
+| Instr_block of instr_list
+| Instr_if of (expression * instr_list) list * instr_list
+| Instr_for of ident * bool * expression * expression * instr_list
+| Instr_while of expression * instr_list
 
 
 (****** PROGRAMME MINI-ADA ******)
