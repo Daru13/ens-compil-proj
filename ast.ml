@@ -78,7 +78,7 @@ and decl_value =
 | Decl_type of ident
 | Decl_access of ident * ident
 | Decl_record of ident * fields list
-| Decl_vars of ident list * ident * expression option
+| Decl_vars of ident list * ty * expression option
 | Decl_procedure of ident * params * declaration list * instruction list
 | Decl_function of ident * params * ty * declaration list * instruction list
 

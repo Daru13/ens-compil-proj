@@ -1,5 +1,5 @@
 %{
-
+	open Ast
 %}
 
 (* Symboles terminaux *)
@@ -47,7 +47,7 @@
 %type <Ast.expression> expression
 %type <Ast.instruction> instruction
 %type <Ast.binop> operator
-%type <Ast.access> access
+%type <Ast.var_or_field> access
 
 %start program
 
@@ -71,43 +71,71 @@ program:
 declaration:
 | TYPE; id = ID; SEMICOLON;
   {
-  	Delc_type(id)
+  	let value = Decl_type(id) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | TYPE; id_type = ID; IS; ACCESS; id_access = ID; SEMICOLON;
   {
-  	Decl_access(id_type, id_access)
+  	let value = Decl_access(id_type, id_access) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | TYPE; id_type = ID; IS; RECORD; fields_l = fields+; END; RECORD; SEMICOLON;
   {
-  	Decl_record(id_type, fields_l)
+  	let value = Decl_record(id_type, fields_l) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | ids_l = separated_nonempty_list(COMMA, ID); COLON; t = ty;
   expr = option(COLON_EQUAL; e = expression { e }); SEMICOLON;
   {
-  	Decl_vars(ids_l, t, expr)
+  	let value = Decl_vars(ids_l, t, expr) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
-| PROCEDURE; id_proc_1 = ID; param_l = parameters?; IS; decl_l = declaration*;
+| PROCEDURE; id_proc_1 = ID; opt_param_l = parameters?; IS; decl_l = declaration*;
   BEGIN; instr_l = instruction+; END; id_proc_2 = ID?; SEMICOLON;
   {
-  	if id_proc_1 <> id_proc_2 then
-  		failwith "Procedure identifiers do not match (" ^ id_proc_1 ^ " and " ^ id_proc_2 ^ ")"
-  	else
-  		Decl_procedure(id_proc_1, param_l, decl_l, instr_l)
+	let param_l = match opt_param_l with
+	| Some(l) 	-> l
+	| None 		-> []
+	in
+
+	let value = match id_proc_2 with
+  	| Some(id) ->
+	  	if id_proc_1 <> id then
+	  		failwith ("Procedure identifiers do not match (" ^ id_proc_1 ^ " and " ^ id ^ ")")
+	  	else
+	  		Decl_procedure(id_proc_1, param_l, decl_l, instr_l)
+	| None ->
+		Decl_procedure(id_proc_1, param_l, decl_l, instr_l)
+	in
+
+	{value = value; pos = ($startpos, $endpos)}
   }
-| FUNCTION; id_func_1 = ID; param_l = parameters?; IS;
+| FUNCTION; id_func_1 = ID; opt_param_l = parameters?; IS;
   RETURN; t = ty; IS; decl_l = declaration*;
   BEGIN; instr_l = instruction+; END; id_func_2 = ID?; SEMICOLON;
   {
-  	if id_proc_1 <> id_proc_2 then
-  		failwith "Function identifiers do not match (" ^ id_func_1 ^ " and " ^ id_func_2 ^ ")"
-  	else
-  		Decl_procedure(id_func_1, param_l, decl_l, instr_l)
+  	let param_l = match opt_param_l with
+  	| Some(l) 	-> l
+  	| None 		-> []
+  	in
+
+  	let value = match id_func_2 with
+  	| Some(id) ->
+	  	if id_func_1 <> id then
+	  		failwith ("Function identifiers do not match (" ^ id_func_1 ^ " and " ^ id ^ ")")
+	  	else
+	  		Decl_function(id_func_1, param_l, t, decl_l, instr_l)
+	| None ->
+		Decl_function(id_func_1, param_l, t, decl_l, instr_l)
+	in
+
+	{value = value; pos = ($startpos, $endpos)}
   }
 
 fields:
   ids_l = separated_nonempty_list(COMMA, ID); COLON; t = ty; SEMICOLON;
   {
-  	(ids_l, ty)
+  	(ids_l, t)
   }
 
 ty:
@@ -121,9 +149,9 @@ ty:
   }
 
 parameters:
-  delimited(OPEN_PARENTHESIS,
- 			separated_nonempty_list(SEMICOLON, parameter),
- 			CLOSE_PARENTHESIS);
+  param_l = delimited(OPEN_PARENTHESIS,
+ 					  separated_nonempty_list(SEMICOLON, parameter),
+ 					  CLOSE_PARENTHESIS);
   {
   	param_l
   }
@@ -139,139 +167,147 @@ mode:
 | IN; 		{ Mod_in }
 | IN; OUT; 	{ Mod_inOut }
 
-/******************************************************************************/
+/*****************************************************************************/
 
 expression:
 | int = INT;
   {
   	let value = Expr_int(int) in
-  	{value = value; pos = $startpos * $endpos}
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | c = CHAR;
   {
   	let value = Expr_char(c) in
-  	{value = value; pos = $startpos * $endpos}
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | TRUE;
   {
   	let value = Expr_bool(true) in
-  	{value = value; pos = $startpos * $endpos}
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | FALSE;
   {
   	let value = Expr_bool(false) in
-  	{value = value; pos = $startpos * $endpos}	
+  	{value = value; pos = ($startpos, $endpos)}	
   }
 | NULL;
   {
   	let value = Expr_null in
-  	{value = value; pos = $startpos * $endpos}
+  	{value = value; pos = ($startpos, $endpos)}
   }
-| delimited(OPEN_PARENTHESIS,
- 			expression,
- 			CLOSE_PARENTHESIS);
+| expr = delimited(OPEN_PARENTHESIS,
+ 				   expression,
+ 				   CLOSE_PARENTHESIS);
   {
   	expr
   }
 | acc = access;
   {
-  	let value = Expr_bool(true) in
-  	{value = value; pos = $startpos * $endpos}
+  	let value = Expr_access(acc) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | expr_1 = expression;
   op 	 = operator;
   expr_2 = expression;
   {
-  	let value = Expr_binop(expr_l, op, expr_2) in
-  	{value = value; pos = $startpos * $endpos}
+  	let value = Expr_binop(expr_1, op, expr_2) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | NOT; expr = expression;
   {
   	let value = Expr_unop(UnOp_not, expr) in
-  	{value = value; pos = $startpos * $endpos}
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | NEG; expr = expression;
   {
   	let value = Expr_unop(UnOp_negative, expr) in
-  	{value = value; pos = $startpos * $endpos}
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | NEW; id = ID;
   {
   	let value = Expr_new(id) in
-  	{value = value; pos = $startpos * $endpos}
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | id = ID;
-  delimited(OPEN_PARENTHESIS,
- 			separated_nonempty_list(COMMA, expression),
- 			CLOSE_PARENTHESIS);
+  expr_l = delimited(OPEN_PARENTHESIS,
+ 					 separated_nonempty_list(COMMA, expression),
+ 					 CLOSE_PARENTHESIS);
   {
   	let value = Expr_call(id, expr_l) in
-  	{value = value; pos = $startpos * $endpos}
+  	{value = value; pos = ($startpos, $endpos)}
   }
 /* TODO: Ajouter "character ' val ( <expr>,+ )" ! */
 
 instruction:
 | acc = access; COLON_EQUAL; expr = expression; SEMICOLON;
   {
-  	Instr_set(acc, expr)
+  	let value = Instr_set(acc, expr) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | id = ID; SEMICOLON;
   {
-  	Instr_call(id, [])
+  	let value = Instr_call(id, []) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | id = ID;
-  delimited(OPEN_PARENTHESIS,
- 			separated_nonempty_list(COMMA, expression),
- 			CLOSE_PARENTHESIS);
+  expr_l = delimited(OPEN_PARENTHESIS,
+ 					 separated_nonempty_list(COMMA, expression),
+ 					 CLOSE_PARENTHESIS);
   SEMICOLON;
   {
-  	Instr_call(id, expr_l)
+  	let value = Instr_call(id, expr_l) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | RETURN; expr = expression?; SEMICOLON;
   {
-  	Instr_return(expr)
+  	let value = Instr_return(expr) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | BEGIN; instr_l = instruction+; END; SEMICOLON;
   {
-  	Instr_block(instr_l)
+  	let value = Instr_block(instr_l) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | IF; if_expr = expression;
   THEN; then_instr_l = instruction+;
   elseif_l = list(ELSIF; sp = separated_pair(expression, THEN, instruction+) { sp });
-  else_instr_l = option(ELSE; i = instruction+ { i });
+  else_opt_instr_l = loption(ELSE; i = instruction+ { i });
   END; IF; SEMICOLON;
   {
-  	let if_then = (if_expr, Instr_block(then_instr_l)) in 
+  	let if_then = (if_expr, then_instr_l) in 
   	let if_elseif = if_then :: elseif_l in
 
-  	Instr_if(if_elseif, Instr_block(else_instr_l))
+  	let value = Instr_if(if_elseif, else_opt_instr_l) in 
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | FOR; id = ID; IN; reverse_order = boption(REVERSE);
   expr_start = expression; TWO_DOTS; expr_end = expression;
   LOOP; instr_l = instruction+; END; LOOP; SEMICOLON;
   {
-  	Instr_for(id, reverse_order, expr_start, expr_end, Instr_block(instr_l))
+  	let value = Instr_for(id, reverse_order, expr_start, expr_end, instr_l) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 | WHILE; while_expr = expression; LOOP;
   instr_l = instruction+; END; LOOP; SEMICOLON;
   {
-  	Instr_while(while_expr, Instr_block(instr_l))
+  	let value = Instr_while(while_expr, instr_l) in
+  	{value = value; pos = ($startpos, $endpos)}
   }
 
-operator:
-| EQUAL; 		{ BinOp_equal }
-| DIFFERENT; 	{ BinOp_different }
-| COMPARATOR; 	{ BinOp_compare }
-| PLUS; 		{ BinOp_plus }
-| MINUS; 		{ BinOp_minus }
-| TIMES; 		{ BinOp_multiply }
-| DIV; 			{ BinOp_divide }
-| REM; 			{ BinOp_remainder }
-| AND; 			{ BinOp_and }
-| AND_THEN; 	{ BinOp_andThen }
-| OR; 			{ BinOp_or }
-| OR_ELSE; 		{ BinOp_orElse }
+%inline operator:
+| EQUAL; 			{ BinOp_equal }
+| DIFFERENT; 		{ BinOp_different }
+| c = COMPARATOR; 	{ BinOp_compare(c) }
+| PLUS; 			{ BinOp_plus }
+| MINUS; 			{ BinOp_minus }
+| TIMES; 			{ BinOp_multiply }
+| DIV; 				{ BinOp_divide }
+| REM; 				{ BinOp_remainder }
+| AND; 				{ BinOp_and }
+| AND_THEN; 		{ BinOp_andThen }
+| OR; 				{ BinOp_or }
+| OR_ELSE; 			{ BinOp_orElse }
 
 access:
 | id = ID; 							{ Acc_var(id) }
-| expr = expression; DOT; id = ID; 	{ Acc_field(expression, id) }
+| expr = expression; DOT; id = ID; 	{ Acc_field(expr, id) }
