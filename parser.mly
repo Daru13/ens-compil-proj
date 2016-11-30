@@ -27,12 +27,16 @@
 %token PLUS MINUS
 %token TIMES DIV REM
 %token NEG
-%token DOT 					(* . *)
+%token DOT
 
 %left OR OR_ELSE
 %left AND AND_THEN
+%nonassoc NOT
+%left EQUAL DIFFERENT
+%left COMPARATOR
 %left PLUS MINUS
 %left TIMES DIV REM
+%nonassoc NEG
 %left DOT
 
 (* Symboles non-terminaux *)
@@ -56,7 +60,7 @@
 program:
   WITH; id_ada_io_1 = ID; SEMICOLON;
   USE; id_ada_io_2 = ID; SEMICOLON;
-  PROCEDURE; id_proc_1 = ID; decl_l = declaration*;
+  PROCEDURE; id_proc_1 = ID; IS; decl_l = declaration*;
   BEGIN; instr_l = instruction+; END; id_proc_2 = ID?; SEMICOLON;
   EOF;
   {
@@ -65,6 +69,7 @@ program:
   	else if id_ada_io_1 <> id_ada_io_2 then
   		failwith "Both 'with' and 'use' must concern 'Ada.Text_IO'"
   	else
+  		(* TODO : tester id_proc_2 si défini *)
   		(id_proc_1, decl_l, instr_l)
   }
 
