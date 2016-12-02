@@ -11,6 +11,7 @@
 		"and", AND;
 		(* "and then", AND_THEN; *)
 		"begin", BEGIN;
+		"character", CHARACTER;
 		"else", ELSE;
 		"elsif", ELSIF;
 		"end", END;
@@ -36,6 +37,7 @@
 		"true", TRUE;
 		"type", TYPE;
 		"use", USE;
+		"val", VAL;
 		"while", WHILE;
 		"with", WITH
 	]
@@ -75,6 +77,7 @@ rule token = parse
 | ")" 				{ CLOSE_PARENTHESIS }
 | ":" 				{ COLON }
 | "." 				{ DOT }
+| "'" 				{ APOSTROPHE }
 | ".." 				{ TWO_DOTS }
 | ":=" 				{ COLON_EQUAL }
 
