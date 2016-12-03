@@ -1,4 +1,5 @@
 open Arg
+open Lexing
 
 (* En cas d'arguments anonymes non attendus en ligne de commande *)
 exception Unexpected_argument of string
@@ -13,9 +14,9 @@ let parse_arguments () =
 	(* Liste des paramètres disponibles en ligne de commande *)
 	let available_params = [
 			("--parse-only", Set (param_parse_only),
-			 "(default: false) Only arse input, and exit");
+			 "(default: false) Parse input, then exit");
 			("--type-only" , Set (param_type_only) ,
-			 " (default: false) Only parse and type input, and exit");
+			 " (default: false) Parse and type input, then exit");
 		] in
 
 	(* Fonction appelée quand un argument anonyme s est rencontré *)
@@ -42,15 +43,46 @@ let open_source_file () =
 		raise Invalid_source_file
 ;;
 
-let compile =
-	(* Lecture de la ligne de commande *)
-	parse_arguments ();
+let print_error (pos_start, pos_end) msg =
+	let file 	= !param_source_file in
+	let line 	= pos_start.pos_lnum in
+	let c_start = pos_start.pos_cnum in
+	let c_end 	= pos_end.pos_cnum in
 
-	(* Ouverture du fichier source, et lexbuf associé *)
-	let source_file = open_source_file () in
-	let lexbuf		= Lexing.from_channel source_file in
+	Printf.eprintf "File \"%s\", line %d, characters %d-%d:\n" file line c_start c_end;
+	Printf.eprintf "Error: %s\n" msg
+;;
 
-	try (* TODO : fermeture de fichier ? *)
+let handle_exception e =
+	match e with
+	| Invalid_source_file ->
+		Printf.eprintf "Fatal error: unable to open the specified source file.\n";
+		exit 2
+	| Lexer.Illegal_character(pos) ->
+		print_error pos "illegal character.";
+		exit 1
+	| Lexer.Too_large_integer(pos) ->
+		print_error pos "out of bounds integer.";
+		exit
+	| Ast.Syntax_error(pos, msg) ->
+		print_error pos msg;
+		exit
+	| _ as e ->
+		raise e; (* TODO: enlever cette ligne, utile pour debug *)
+		(* Printf.eprintf "Fatal error: uncatched exception.\n";
+		exit 2 *)
+;;
+
+let compile () =	
+	try 
+		(* Lecture de la ligne de commande *)
+		parse_arguments ();
+
+		(* Ouverture du fichier source, et lexbuf associé *)
+		let source_file = open_source_file () in
+		let lexbuf		= Lexing.from_channel source_file in
+
+		(* TODO : fermeture de fichier ? *)
 		(* Analyse lexicale et syntaxique *)
 		let abstract_syntax = Parser.program Lexer.token lexbuf in
 		if !param_parse_only then exit 0;
@@ -60,9 +92,10 @@ let compile =
 		if !param_type_only then exit 0;
 
 		(* Fin de la compilation, sans erreur *)
+		close_in source_file;
 		exit 0;
 	with
-		_ -> exit 2
+		_ as e -> handle_exception e
 ;;
 
-let () = compile
+let _ = compile ()

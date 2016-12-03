@@ -1,5 +1,7 @@
 %{
 	open Ast
+
+	(* exception Syntax_error of position * string *)
 %}
 
 (* Symboles terminaux *)
@@ -29,6 +31,8 @@
 %token TIMES DIV REM
 %token NEG
 %token DOT
+
+(* Priorités et associativités *)
 
 %left OR OR_ELSE
 %left AND AND_THEN
@@ -72,6 +76,11 @@ program:
   	else
   		(* TODO : tester id_proc_2 si défini *)
   		(id_proc_1, decl_l, instr_l)
+  }
+| error
+  {
+  	let pos = ($startpos, $endpos) in
+  	raise (Syntax_error (pos, "illegal program structure"))
   }
 
 declaration:
@@ -136,6 +145,11 @@ declaration:
 	in
 
 	{value = value; pos = ($startpos, $endpos)}
+  }
+| error
+  {
+  	let pos = ($startpos, $endpos) in
+  	raise (Syntax_error (pos, "illegal declaration"))
   }
 
 fields:
@@ -250,6 +264,11 @@ expression:
   	let value = Expr_ascii(expr) in
   	{value = value; pos = ($startpos, $endpos)}
   }
+| error
+  {
+  	let pos = ($startpos, $endpos) in
+  	raise (Syntax_error (pos, "illegal expression"))
+  }
 
 instruction:
 | acc = access; COLON_EQUAL; expr = expression; SEMICOLON;
@@ -305,6 +324,11 @@ instruction:
   {
   	let value = Instr_while(while_expr, instr_l) in
   	{value = value; pos = ($startpos, $endpos)}
+  }
+| error
+  {
+  	let pos = ($startpos, $endpos) in
+  	raise (Syntax_error (pos, "illegal instruction"))
   }
 
 %inline operator:

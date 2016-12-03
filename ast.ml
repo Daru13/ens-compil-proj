@@ -1,7 +1,6 @@
 (* Syntaxe abstraite de Mini-ADA *)
 
 type position = Lexing.position * Lexing.position
-				  
 type ident = string
 
 type comparator =
@@ -10,6 +9,8 @@ type comparator =
 | Less_than
 | Less_eq
 
+(* A placer ailleurs... *)
+exception Syntax_error of position * string
      
 (****** EXPRESSIONS ******)
 

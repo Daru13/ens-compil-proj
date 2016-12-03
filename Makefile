@@ -18,32 +18,34 @@ OBJS = ast.cmo lexer.cmo parser.cmo compiler.cmo
 # Cibles factices
 .PHONY: clean
 
+# Cibles à compiler et lier
 all: adac
 
 adac: $(OBJS)
 	ocamlc $(CC_FLAGS) $(LIBS) $(OBJS) -o adac
 
-compiler: parser.mli lexer.mli
-	ocamlc $(CC_FLAGS) parser.mli lexer.mli -c compiler.ml
+compiler.cmo: compiler.ml parser.cmo lexer.cmo
+	ocamlc $(CC_FLAGS) parser.mli -c compiler.ml
 
-newtyper: ast.cmo
+newtyper.cmo: newtyper.ml ast.cmo
 #	ocamlc $(CC_FLAGS) ast.mli -c newtyper.ml
 
 parser.cmo: parser.ml ast.cmo
 	ocamlc $(CC_FLAGS) -c parser.ml
 
-lexer.cmo: parser.ml lexer.ml
+lexer.cmo: lexer.ml parser.ml
 	ocamlc $(CC_FLAGS) parser.mli -c lexer.ml
 
-lexer.ml: parser.ml
+lexer.ml: lexer.mll ast.cmo
 	ocamllex $(LEXER_FLAGS) lexer.mll
 
-parser.ml:
+parser.ml: parser.mly
 	menhir $(PARSER_FLAGS) parser.mly	
 
-ast.cmo:
-	ocamlc $(CC_FLAGS) -w -20 -c ast.ml
+ast.cmo: ast.ml
+	ocamlc $(CC_FLAGS) -w -30 -c ast.ml
 
 clean:
 	- rm -f adac
+	- rm -f lexer.ml parser.ml
 	- rm -f *.mli *.cmi *.cmo

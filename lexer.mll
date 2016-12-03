@@ -2,6 +2,9 @@
 	open Big_int
 	open Parser
 
+	exception Illegal_character of Ast.position
+	exception Too_large_integer of Ast.position
+
 	(* Liste des mots-clés réservés *)
 	let keywords = Hashtbl.create 31
 	let () = List.iter (fun (id, symbol) -> Hashtbl.add keywords id symbol)
@@ -83,10 +86,10 @@ rule token = parse
 | "=" 				{ EQUAL }
 | "/=" 				{ DIFFERENT }
 
-| ">" 				{ COMPARATOR (Greater_than) }
-| ">=" 				{ COMPARATOR (Greater_eq) }
-| "<" 				{ COMPARATOR (Less_than) }
-| "<=" 				{ COMPARATOR (Less_eq) }
+| ">" 				{ COMPARATOR (Ast.Greater_than) }
+| ">=" 				{ COMPARATOR (Ast.Greater_eq) }
+| "<" 				{ COMPARATOR (Ast.Less_than) }
+| "<=" 				{ COMPARATOR (Ast.Less_eq) }
 
 | "+" 				{ PLUS }
 | "-"				{ MINUS }
@@ -99,7 +102,9 @@ rule token = parse
 | number as str		{ 
 					  let big_int_number = big_int_of_string str in
 					  if gt_big_int big_int_number max_allowed_int then
-					  	failwith ("Too large integer: " ^ str)
+					  	let start_pos = Lexing.lexeme_start_p lexbuf in
+					    let end_pos   = Lexing.lexeme_end_p lexbuf in
+					  	raise (Too_large_integer (start_pos, end_pos))
 					  else
 					    INT (int_of_big_int big_int_number)
 					}
@@ -113,7 +118,10 @@ rule token = parse
 
 | ''' (_ as c) ''' 	{ CHAR (c) } 
 
-| _ as c 			{ failwith ("Illegal character: " ^ String.make 1 c) }
+| _ 				{ let start_pos = Lexing.lexeme_start_p lexbuf in
+					  let end_pos 	= Lexing.lexeme_end_p lexbuf in
+					  raise (Illegal_character (start_pos, end_pos))
+					}
 
 | eof 				{ EOF }
 
