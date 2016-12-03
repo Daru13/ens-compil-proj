@@ -1,7 +1,6 @@
 {
-	(* TODO: à retirer, utiliser les types induits par les tokens du parser à la place *)
-	open Tokens
 	open Big_int
+	open Parser
 
 	(* Liste des mots-clés réservés *)
 	let keywords = Hashtbl.create 31
@@ -84,7 +83,7 @@ rule token = parse
 | "=" 				{ EQUAL }
 | "/=" 				{ DIFFERENT }
 
-| ">" 				{ COMPARATOR (Greather_than) }
+| ">" 				{ COMPARATOR (Greater_than) }
 | ">=" 				{ COMPARATOR (Greater_eq) }
 | "<" 				{ COMPARATOR (Less_than) }
 | "<=" 				{ COMPARATOR (Less_eq) }
