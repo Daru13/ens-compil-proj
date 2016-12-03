@@ -20,6 +20,8 @@
 %token COLON_EQUAL 			(* := *)
 %token TWO_DOTS				(* .. *)
 
+%token ADA_TEXT_IO
+
 %token ACCESS BEGIN CHARACTER ELSE ELSIF END FALSE FOR FUNCTION IF IN IS LOOP NEW NULL OUT PROCEDURE RECORD RETURN REVERSE THEN TRUE TYPE USE VAL WHILE WITH
 
 %token OR OR_ELSE
@@ -63,17 +65,12 @@
 %%
 
 program:
-  WITH; id_ada_io_1 = ID; SEMICOLON;
-  USE; id_ada_io_2 = ID; SEMICOLON;
+  WITH; ADA_TEXT_IO; SEMICOLON;
+  USE; ADA_TEXT_IO; SEMICOLON;
   PROCEDURE; id_proc_1 = ID; IS; decl_l = declaration*;
   BEGIN; instr_l = instruction+; END; id_proc_2 = ID?; SEMICOLON;
   EOF;
   {
-  	if id_ada_io_1 <> "Ada.Text_IO" then
-  		failwith "'Ada.Text_IO' is required by mini-ADA"
-  	else if id_ada_io_1 <> id_ada_io_2 then
-  		failwith "Both 'with' and 'use' must concern 'Ada.Text_IO'"
-  	else
   		(* TODO : tester id_proc_2 si défini *)
   		(id_proc_1, decl_l, instr_l)
   }

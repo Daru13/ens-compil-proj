@@ -115,6 +115,9 @@ rule token = parse
 					  with
 					  	Not_found -> ID (lowercase_id)
 					}
+					
+(* A améliorer... *)					
+| "Ada.Text_IO" 	{ ADA_TEXT_IO }
 
 | ''' (_ as c) ''' 	{ CHAR (c) } 
 
