@@ -19,7 +19,7 @@ type expr_type = (* Tout type définissable en Mini ADA rentre dans ce type *)
   |Prim of primitive
   |Access of expr_type
   |Record of (ident*expr_type) list 
-  |Function of (ident*expr_type) list * expr_type (* La liste représente les arguments, 
+  |Function of (ident*expr_type*bool) list * expr_type (* La liste représente les arguments, 
                                                  le dernier adatype le type de retour *)
 let equiv t1 t2 =
   let rec aux a b = match a,b with
@@ -104,10 +104,12 @@ let rec type_expr (e:expression) ml = match e.value with (* Typage d'une express
 			|Some(Type(None),b) -> (Access(Prim(Nulltype)),false)
 			|_ -> raise (TypeError e.pos) end
   |Expr_call (idf,l) ->
-    let ll = List.map (fun x -> fst (type_expr x ml)) l in (*List eff. arg. types *)
+    let ll = List.map (fun x -> type_expr x ml) l in (*List eff. arg. types *)
     begin match search idf ml with
 	  |Some(Val(Function (arg,ret)),b)
-	       when (List.for_all2 (fun x y -> (equiv x (snd y))) ll arg) -> (ret,false)
+	       when (List.for_all2 (fun (t1,b1) (t2,b2)
+				    -> (equiv t1 t2)&&(b1|| (not b2)))
+				   ll (List.map (fun (x,y,z) -> (y,z)) arg)) -> (ret,false)
 	  |_ -> raise (TypeError e.pos) end
   |Expr_ascii exp -> match type_expr exp ml with
 		     |Prim(Integer),_ -> (Prim(Character),false)
@@ -163,18 +165,23 @@ de variable n'était déja utilisé, aussi bien par un type que par une variable
 	    end
     |false -> raise (TypeError d.pos) in
   let type_params l p=
-    let rec aux l ttl typ acc = match l with
-      |hd::tl -> aux tl ttl typ ((hd,typ)::acc)
+    let rec aux l ttl typ b acc = match l with
+      |hd::tl -> aux tl ttl typ b ((hd,typ,b)::acc)
       |[] -> match ttl with
-	     |(idl,_,newty)::tl1 -> aux idl tl1 (type_ty newty ml p) acc
+	     |(idl,mo,newty)::tl1 ->
+	       begin match mo with
+		     |None|Some(Mod_in) -> aux idl tl1 (type_ty newty ml p) false acc
+		     |Some(Mod_inOut) -> aux idl tl1 (type_ty newty ml p) true acc end
 	     |[] -> acc in
     match l with
     |[] -> []
-    |(idl,_,ty)::tl -> List.rev (aux idl tl (type_ty ty ml p) []) in
+    |(idl,mo,ty)::tl -> match mo with
+			|None|Some(Mod_in) -> List.rev (aux idl tl (type_ty ty ml p) false [])
+			|Some(Mod_inOut) -> List.rev (aux idl tl (type_ty ty ml p) true []) in
   
   let type_fun id params rettype p = match is_available ml id with
     |false -> raise (TypeError p)
-    |true -> (id,Function ((type_params params p), (type_ty rettype ml p))) in 
+    |true -> (id,Function ((type_params params p), rettype)) in 
   let val_and_context_bindings =
     match d.value with
     |Decl_type id -> begin match is_available ml id with
@@ -190,16 +197,21 @@ de variable n'était déja utilisé, aussi bien par un type que par une variable
 				 |true -> [(id,(Type(Some(Record(type_record l d.pos))),true))],[]
 				 |false -> raise (TypeError d.pos) end
     |Decl_vars (idl,t,eo) -> type_vars idl t eo d.pos,[]
-    |Decl_procedure (id,ps,ldec,lins) -> [],[] (* à faire *)
+    |Decl_procedure (id,ps,ldec,lins) ->
+      let (k,v as bind) = type_fun id ps (Prim(Nulltype)) (d.pos) in
+      let cont = context_fun id ps (Prim(Nulltype)) ldec lins ((Tmap.add k (Val(v),true)
+									 (List.hd ml))
+								 ::(List.tl ml)) (d.pos) in
+      ([(k,(Val(v),true))],[cont])
     |Decl_function (id,ps,rty,ldec,lins) ->
-      let (k,v as bind) = type_fun id ps rty (d.pos) in
-      let cont = context_fun id ps rty ldec lins ((Tmap.add k (Val(v),true) (List.hd ml))
+      let (k,v as bind) = type_fun id ps (type_ty rty ml d.pos) (d.pos) in
+      let cont = context_fun id ps (type_ty rty ml d.pos) ldec lins ((Tmap.add k (Val(v),true) (List.hd ml))
 						  ::(List.tl ml)) (d.pos) in
       ([(k,(Val(v),true))],[cont]) in
    
   ((List.fold_left (fun m (k,v) -> Tmap.add k v m) (List.hd ml) (fst val_and_context_bindings)::(List.tl ml)),
    List.fold_left (fun m (k,v) -> Tmap.add k v m) cm (snd val_and_context_bindings))
-and check_block l ml typ = 
+and check_block l ml typ = (* /!\ Fonction probablement à modifier pour les histoires de return *)
   let rec aux l acc = match l with
     |[] -> acc
     |hd::tl -> aux tl (type_instr hd ml typ) in
@@ -214,10 +226,12 @@ and type_instr (i:instruction) ml typ =
 					 |_ -> raise (TypeError i.pos) end
 			|_ -> raise (TypeError i.pos) end
   |Instr_call (idf,l) ->
-    let ll = List.map (fun x -> fst (type_expr x ml)) l in (*List eff. arg. types *)
+    let ll = List.map (fun x -> type_expr x ml) l in (*List eff. arg. types *)
     begin match search idf ml with
 	  |Some(Val(Function (arg,ret)),b)
-	       when (List.for_all2 (fun x y -> (equiv x (snd y))) ll arg) -> false
+	       when (List.for_all2
+		       (fun (t1,b1) (t2,b2) -> (equiv t1 t2)&&(b1||(not b2)))
+		       ll (List.map (fun (x,y,z) -> (y,z)) arg) ) -> false
 	  |_-> raise (TypeError i.pos) end		   
   |Instr_return eo -> begin match eo with
 		      |None when (equiv typ (Prim(Nulltype))) -> true
@@ -262,6 +276,17 @@ and context_fun id params rtype ldec lins ml p=
   let handle_decl ldec ml mc = List.fold_left
 				     (fun (l,c) d -> type_decl d l c) (ml,mc) ldec in
   (* Vérifier que l'on obtient bien une fonction en testant les instructions *)
-
+  let handle_inst lins ml mc = match check_block lins ml rtype with
+    |false -> raise (TypeError p)
+    |true -> {node = List.hd ml ; subtree = mc} in
   (* Renvoyer une association (id,context_tree) *)
-  (id,[]);;
+  let mapl = handle_decl ldec (new_map params ml) (Tmap.empty) in
+  (id,handle_inst lins (fst mapl) (snd mapl));;
+
+let context_program ((id,decll,insl):program) = 
+  let init_list = [("Integer",(Type(Some(Prim(Integer))),true));
+		   ("Boolean",(Type(Some(Prim(Boolean))),true));
+		   ("Character",(Type(Some(Prim(Character))),true));
+		   ("Nulltype",(Type(Some(Prim(Nulltype))),true))] in
+  let init_map = List.fold_left (fun m (k,v) -> Tmap.add k v m) (Tmap.empty) init_list in
+  context_fun id [] (Prim(Nulltype)) decll insl [init_map] (Lexing.dummy_pos,Lexing.dummy_pos);;
