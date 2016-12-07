@@ -31,7 +31,6 @@
 %token <Ast.comparator> COMPARATOR
 %token PLUS MINUS
 %token TIMES DIV REM
-%token NEG
 %token DOT
 
 (* Priorités et associativités *)
@@ -43,7 +42,6 @@
 %left COMPARATOR
 %left PLUS MINUS
 %left TIMES DIV REM
-%nonassoc NEG
 %left DOT
 
 (* Symboles non-terminaux *)
@@ -237,7 +235,7 @@ expression:
   	let value = Expr_unop(UnOp_not, expr) in
   	{value = value; pos = ($startpos, $endpos)}
   }
-| NEG; expr = expression;
+| MINUS; expr = expression;
   {
   	let value = Expr_unop(UnOp_negative, expr) in
   	{value = value; pos = ($startpos, $endpos)}
@@ -343,6 +341,8 @@ instruction:
 | AND_THEN; 		{ BinOp_andThen }
 | OR; 				{ BinOp_or }
 | OR_ELSE; 			{ BinOp_orElse }
+
+// TODO: AndThen et OrElse !!
 
 access:
 | id = ID; 							{ Acc_var(id) }

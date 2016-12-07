@@ -53,6 +53,9 @@ let digit 	= ['0'-'9']
 (* Identificateur *)
 let ident = letter (letter | digit | '_')*
 
+(* Large cas de termes réservés, insensibles à la casse *)
+let reserved = letter (letter | '_' | ''')*
+
 (* Constante numérique entière *)
 let number = digit+
 
@@ -94,8 +97,6 @@ rule token = parse
 | "/" 				{ DIV }
 | "rem" 			{ REM }
 
-(* TODO: différencier MINUS et NEG (resp. binaire et unaire) ! *)
-
 | number as str		{ 
 					  let big_int_number = big_int_of_string str in
 					  if gt_big_int big_int_number max_allowed_int then
@@ -106,22 +107,30 @@ rule token = parse
 					    INT (int_of_big_int big_int_number)
 					}
 
-| ident as str		{ let lowercase_id = String.lowercase str in
+| ident as str		{
+					  let lowercase_id = String.lowercase str in
 					  try
-					  	if lowercase_id = "character'val" then
-					  		GET_ASCII
-					  	else
-							Hashtbl.find keywords lowercase_id
+					  	Hashtbl.find keywords lowercase_id
 					  with
 					  	Not_found -> ID (lowercase_id)
 					}
-					
-(* A améliorer... *)					
+
+(* Termes réservés particuliers *)
+| reserved as str 	{
+					  let lowercase_str = String.lowercase str in
+					  match lowercase_str with
+					  | "character'val" -> GET_ASCII
+					  | _ 				->
+						  let start_pos = Lexing.lexeme_start_p lexbuf in
+						  let end_pos 	= Lexing.lexeme_end_p lexbuf in
+						  raise (Illegal_character (start_pos, end_pos))		
+					}				
 | "Ada.Text_IO" 	{ ADA_TEXT_IO }
 
 | ''' (_ as c) ''' 	{ CHAR (c) } 
 
-| _ 				{ let start_pos = Lexing.lexeme_start_p lexbuf in
+| _ 				{
+					  let start_pos = Lexing.lexeme_start_p lexbuf in
 					  let end_pos 	= Lexing.lexeme_end_p lexbuf in
 					  raise (Illegal_character (start_pos, end_pos))
 					}
