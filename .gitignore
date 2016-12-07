@@ -1,2 +1,10 @@
-
 typer.ml
+
+lexer.ml
+parser.ml
+*.mli
+*.cmi
+*.cmo
+old/*
+parser.conflicts
+adac

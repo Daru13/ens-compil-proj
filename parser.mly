@@ -24,24 +24,26 @@
 
 %token ACCESS BEGIN ELSE ELSIF END FALSE FOR FUNCTION IF IN IS LOOP NEW NULL OUT PROCEDURE RECORD RETURN REVERSE THEN TRUE TYPE USE WHILE WITH
 
-%token OR OR_ELSE
-%token AND AND_THEN
+%token OR
+%token AND
 %token NOT
 %token EQUAL DIFFERENT
 %token <Ast.comparator> COMPARATOR
 %token PLUS MINUS
 %token TIMES DIV REM
+%token NEG 					(* unary minus *)
 %token DOT
 
 (* Priorités et associativités *)
 
-%left OR OR_ELSE
-%left AND AND_THEN
+%left OR ELSE
+%left AND THEN
 %nonassoc NOT
 %left EQUAL DIFFERENT
 %left COMPARATOR
 %left PLUS MINUS
 %left TIMES DIV REM
+%nonassoc NEG
 %left DOT
 
 (* Symboles non-terminaux *)
@@ -235,7 +237,7 @@ expression:
   	let value = Expr_unop(UnOp_not, expr) in
   	{value = value; pos = ($startpos, $endpos)}
   }
-| MINUS; expr = expression;
+| MINUS; expr = expression; %prec NEG
   {
   	let value = Expr_unop(UnOp_negative, expr) in
   	{value = value; pos = ($startpos, $endpos)}
@@ -322,11 +324,13 @@ instruction:
   	let value = Instr_while(while_expr, instr_l) in
   	{value = value; pos = ($startpos, $endpos)}
   }
+/*
 | error
   {
   	let pos = ($symbolstartpos, $endpos) in
   	raise (Syntax_error (pos, "invalid instruction syntax"))
   }
+*/
 
 %inline operator:
 | EQUAL; 			{ BinOp_equal }
@@ -338,11 +342,9 @@ instruction:
 | DIV; 				{ BinOp_divide }
 | REM; 				{ BinOp_remainder }
 | AND; 				{ BinOp_and }
-| AND_THEN; 		{ BinOp_andThen }
+| AND; THEN; 		{ BinOp_andThen }
 | OR; 				{ BinOp_or }
-| OR_ELSE; 			{ BinOp_orElse }
-
-// TODO: AndThen et OrElse !!
+| OR; ELSE; 		{ BinOp_orElse }
 
 access:
 | id = ID; 							{ Acc_var(id) }
