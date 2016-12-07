@@ -16,13 +16,13 @@
 %token OPEN_PARENTHESIS 	(* ( *)
 %token CLOSE_PARENTHESIS	(* ) *)
 %token COLON 				(* : *)
-%token APOSTROPHE 			(* ' *)
 %token COLON_EQUAL 			(* := *)
 %token TWO_DOTS				(* .. *)
 
 %token ADA_TEXT_IO
+%token GET_ASCII
 
-%token ACCESS BEGIN CHARACTER ELSE ELSIF END FALSE FOR FUNCTION IF IN IS LOOP NEW NULL OUT PROCEDURE RECORD RETURN REVERSE THEN TRUE TYPE USE VAL WHILE WITH
+%token ACCESS BEGIN ELSE ELSIF END FALSE FOR FUNCTION IF IN IS LOOP NEW NULL OUT PROCEDURE RECORD RETURN REVERSE THEN TRUE TYPE USE WHILE WITH
 
 %token OR OR_ELSE
 %token AND AND_THEN
@@ -76,8 +76,8 @@ program:
   }
 | error
   {
-  	let pos = ($startpos, $endpos) in
-  	raise (Syntax_error (pos, "illegal program structure"))
+  	let pos = ($symbolstartpos, $endpos) in
+  	raise (Syntax_error (pos, "invalid program syntax"))
   }
 
 declaration:
@@ -122,7 +122,7 @@ declaration:
 
 	{value = value; pos = ($startpos, $endpos)}
   }
-| FUNCTION; id_func_1 = ID; opt_param_l = parameters?; IS;
+| FUNCTION; id_func_1 = ID; opt_param_l = parameters?;
   RETURN; t = ty; IS; decl_l = declaration*;
   BEGIN; instr_l = instruction+; END; id_func_2 = ID?; SEMICOLON;
   {
@@ -145,15 +145,16 @@ declaration:
   }
 | error
   {
-  	let pos = ($startpos, $endpos) in
-  	raise (Syntax_error (pos, "illegal declaration"))
+  	let pos = ($symbolstartpos, $endpos) in
+  	raise (Syntax_error (pos, "invalid declaration syntax"))
   }
 
 fields:
-  ids_l = separated_nonempty_list(COMMA, ID); COLON; t = ty; SEMICOLON;
+|  ids_l = separated_nonempty_list(COMMA, ID); COLON; t = ty; SEMICOLON;
   {
   	(ids_l, t)
   }
+
 
 ty:
 | id = ID;
@@ -165,8 +166,9 @@ ty:
   	Ty_access(id)
   }
 
+
 parameters:
-  param_l = delimited(OPEN_PARENTHESIS,
+|  param_l = delimited(OPEN_PARENTHESIS,
  					  separated_nonempty_list(SEMICOLON, parameter),
  					  CLOSE_PARENTHESIS);
   {
@@ -253,7 +255,7 @@ expression:
   	let value = Expr_call(id, expr_l) in
   	{value = value; pos = ($startpos, $endpos)}
   }
-| CHARACTER; APOSTROPHE; VAL;
+| GET_ASCII;
   expr = delimited(OPEN_PARENTHESIS,
  				   expression,
  				   CLOSE_PARENTHESIS);
@@ -263,8 +265,8 @@ expression:
   }
 | error
   {
-  	let pos = ($startpos, $endpos) in
-  	raise (Syntax_error (pos, "illegal expression"))
+  	let pos = ($symbolstartpos, $endpos) in
+  	raise (Syntax_error (pos, "invalid expression syntax"))
   }
 
 instruction:
@@ -324,8 +326,8 @@ instruction:
   }
 | error
   {
-  	let pos = ($startpos, $endpos) in
-  	raise (Syntax_error (pos, "illegal instruction"))
+  	let pos = ($symbolstartpos, $endpos) in
+  	raise (Syntax_error (pos, "invalid instruction syntax"))
   }
 
 %inline operator:

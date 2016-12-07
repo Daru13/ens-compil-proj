@@ -46,8 +46,8 @@ let open_source_file () =
 let print_error (pos_start, pos_end) msg =
 	let file 	= !param_source_file in
 	let line 	= pos_start.pos_lnum in
-	let c_start = pos_start.pos_cnum in
-	let c_end 	= pos_end.pos_cnum in
+	let c_start = pos_start.pos_cnum - pos_start.pos_bol in
+	let c_end 	= pos_end.pos_cnum - pos_end.pos_bol in
 
 	Printf.eprintf "File \"%s\", line %d, characters %d-%d:\n" file line c_start c_end;
 	Printf.eprintf "Error: %s\n" msg

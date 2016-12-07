@@ -13,7 +13,6 @@
 		"and", AND;
 		(* "and then", AND_THEN; *)
 		"begin", BEGIN;
-		"character", CHARACTER;
 		"else", ELSE;
 		"elsif", ELSIF;
 		"end", END;
@@ -39,7 +38,6 @@
 		"true", TRUE;
 		"type", TYPE;
 		"use", USE;
-		"val", VAL;
 		"while", WHILE;
 		"with", WITH
 	]
@@ -79,7 +77,6 @@ rule token = parse
 | ")" 				{ CLOSE_PARENTHESIS }
 | ":" 				{ COLON }
 | "." 				{ DOT }
-| "'" 				{ APOSTROPHE }
 | ".." 				{ TWO_DOTS }
 | ":=" 				{ COLON_EQUAL }
 
@@ -111,7 +108,10 @@ rule token = parse
 
 | ident as str		{ let lowercase_id = String.lowercase str in
 					  try
-						Hashtbl.find keywords lowercase_id
+					  	if lowercase_id = "character'val" then
+					  		GET_ASCII
+					  	else
+							Hashtbl.find keywords lowercase_id
 					  with
 					  	Not_found -> ID (lowercase_id)
 					}
@@ -129,5 +129,5 @@ rule token = parse
 | eof 				{ EOF }
 
 and comment = parse
-| comment_end 		{ token lexbuf }
+| comment_end 		{ Lexing.new_line lexbuf; token lexbuf }
 | _					{ comment lexbuf }
