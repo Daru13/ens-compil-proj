@@ -68,11 +68,20 @@ program:
   WITH; ADA_TEXT_IO; SEMICOLON;
   USE; ADA_TEXT_IO; SEMICOLON;
   PROCEDURE; id_proc_1 = ID; IS; decl_l = declaration*;
-  BEGIN; instr_l = instruction+; END; id_proc_2 = ID?; SEMICOLON;
+  BEGIN; instr_l = instruction+; END; id_proc_2_opt = ID?; SEMICOLON;
   EOF;
   {
-  		(* TODO : tester id_proc_2 si défini *)
-  		(id_proc_1, decl_l, instr_l)
+	let value = match id_proc_2_opt with
+  	| Some(id) ->
+	  	if id_proc_1 <> id then
+	  		raise (Unmatching_identifiers (($startpos, $endpos), "main procedure identifiers do not match (" ^ id_proc_1 ^ " and " ^ id ^ ")"))
+	  	else
+	  		(id_proc_1, decl_l, instr_l)
+	| None ->
+		(id_proc_1, decl_l, instr_l)
+	in
+
+	value
   }
 | error
   {
@@ -113,7 +122,7 @@ declaration:
 	let value = match id_proc_2 with
   	| Some(id) ->
 	  	if id_proc_1 <> id then
-	  		failwith ("Procedure identifiers do not match (" ^ id_proc_1 ^ " and " ^ id ^ ")")
+	  		raise (Unmatching_identifiers (($startpos, $endpos), "procedure identifiers do not match (" ^ id_proc_1 ^ " and " ^ id ^ ")"))
 	  	else
 	  		Decl_procedure(id_proc_1, param_l, decl_l, instr_l)
 	| None ->
@@ -134,7 +143,7 @@ declaration:
   	let value = match id_func_2 with
   	| Some(id) ->
 	  	if id_func_1 <> id then
-	  		failwith ("Function identifiers do not match (" ^ id_func_1 ^ " and " ^ id ^ ")")
+	  		raise (Unmatching_identifiers (($startpos, $endpos), "function identifiers do not match (" ^ id_func_1 ^ " and " ^ id ^ ")"))
 	  	else
 	  		Decl_function(id_func_1, param_l, t, decl_l, instr_l)
 	| None ->

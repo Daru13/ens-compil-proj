@@ -63,10 +63,13 @@ let handle_exception e =
 		exit 1
 	| Lexer.Too_large_integer(pos) ->
 		print_error pos "out of bounds integer.";
-		exit
+		exit 1
 	| Ast.Syntax_error(pos, msg) ->
 		print_error pos msg;
-		exit
+		exit 1
+	| Ast.Unmatching_identifiers(pos, msg) ->
+		print_error pos msg;
+		exit 1
 	| _ as e ->
 		raise e; (* TODO: enlever cette ligne, utile pour debug *)
 		(* Printf.eprintf "Fatal error: uncatched exception.\n";

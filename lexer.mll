@@ -140,3 +140,4 @@ rule token = parse
 and comment = parse
 | comment_end 		{ Lexing.new_line lexbuf; token lexbuf }
 | _					{ comment lexbuf }
+| eof 				{ EOF }

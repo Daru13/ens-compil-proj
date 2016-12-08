@@ -11,6 +11,7 @@ type comparator =
 
 (* A placer ailleurs... *)
 exception Syntax_error of position * string
+exception Unmatching_identifiers of position * string
      
 (****** EXPRESSIONS ******)
 
