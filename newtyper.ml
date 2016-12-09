@@ -42,11 +42,12 @@ type decl_type = (* Ce sont les types qui seront présents dans nos Tmap. Ainsi,
 type context_tree = {
   node : (decl_type * bool) Tmap.t;
   subtree : context_tree Tmap.t;
-  (* à un identifiant de fonction (ou de procédure) associe son contexte *)
 }
+  (* à un identifiant de fonction (ou de procédure) associe son contexte *)
+
 
 (* L'utilisation des listes pour les records dans adatype n'est pas optimal,
-On préfèrera l'utilisation d'ABR (Set), pour optimiser le temps de recherche.
+   On préfèrera l'utilisation d'ABR (Set), pour optimiser le temps de recherche.
    Cependant, on simplifie ainsi la syntaxe *)
 
 
@@ -156,6 +157,15 @@ let rec type_decl (d:declaration) ml cm=
      l'identifiant de cette fonction, et son contexte *)
 
   let type_record r p = (* À la définition d'un record associe son type *)
+    let check_rec r p = (* Vérifie que le record ne contient pas deux champs de même id *)
+      (* pseudo linéaire, tail-recursive *)
+      let rec aux l last = match l with
+	|(id,t)::tl when id = last -> raise (Type_error p)
+	|(id,t)::tl -> aux tl id
+	|[] -> r in
+      let pseudo_compare (id1,t1) (id2,t2) = String.compare id1 id2 in
+      let sorted_r = List.sort pseudo_compare r in
+      aux sorted_r "" in
     let rec aux r l t acc p = match l with
       |hd::tl -> aux r tl t ((hd,t)::acc) p
       |[] -> match r with
@@ -163,7 +173,7 @@ let rec type_decl (d:declaration) ml cm=
 	     |hd::tl -> aux tl (fst hd) (type_ty (snd hd) ml p) acc p in
     match r with
     |[] -> raise (Type_error p) (* Should Not Happen *)
-    |hd::tl -> List.rev  (aux tl (fst hd) (type_ty (snd hd) ml p) [] p) in
+    |hd::tl -> List.rev  (check_rec (aux tl (fst hd) (type_ty (snd hd) ml p) [] p) p) in
 
   let type_vars idl t eo p = (* Type une déclaration de variable(s) *)
     (* On vérifie que tous les identifiants des variables à déclarer sont
