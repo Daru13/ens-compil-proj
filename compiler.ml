@@ -70,6 +70,10 @@ let handle_exception e =
 	| Ast.Unmatching_identifiers(pos, msg) ->
 		print_error pos msg;
 		exit 1
+	| Newtyper.Type_error(pos) ->
+		let type_error_msg = "invalid types" in
+		print_error pos type_error_msg;
+		exit 1
 	| _ as e ->
 		raise e; (* TODO: enlever cette ligne, utile pour debug *)
 		(* Printf.eprintf "Fatal error: uncatched exception.\n";
@@ -91,7 +95,7 @@ let compile () =
 		if !param_parse_only then exit 0;
 
 		(* Analyse sémantique et typage *)
-		(* TODO *)
+		let typed_program = Newtyper.context_program abstract_syntax in
 		if !param_type_only then exit 0;
 
 		(* Fin de la compilation, sans erreur *)
