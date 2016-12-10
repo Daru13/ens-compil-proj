@@ -70,9 +70,8 @@ let handle_exception e =
 	| Ast.Unmatching_identifiers(pos, msg) ->
 		print_error pos msg;
 		exit 1
-	| Newtyper.Type_error(pos) ->
-		let type_error_msg = "invalid types" in
-		print_error pos type_error_msg;
+	| Newtyper.Type_error(pos, msg) ->
+		print_error pos msg;
 		exit 1
 	| _ as e ->
 		raise e; (* TODO: enlever cette ligne, utile pour debug *)
