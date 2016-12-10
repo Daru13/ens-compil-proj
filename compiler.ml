@@ -58,6 +58,9 @@ let handle_exception e =
 	| Invalid_source_file ->
 		Printf.eprintf "Fatal error: unable to open the specified source file.\n";
 		exit 2
+	| Unexpected_argument(s) ->
+		Printf.eprintf "Fatal error: argument \"%s\" was not expected.\n" s;
+		exit 2
 	| Lexer.Illegal_character(pos) ->
 		print_error pos "illegal character.";
 		exit 1
@@ -91,11 +94,11 @@ let compile () =
 		(* TODO : fermeture de fichier ? *)
 		(* Analyse lexicale et syntaxique *)
 		let abstract_syntax = Parser.program Lexer.token lexbuf in
-		if !param_parse_only then exit 0;
+		if !param_parse_only then begin close_in source_file; exit 0 end;
 
 		(* Analyse sémantique et typage *)
 		let typed_program = Newtyper.context_program abstract_syntax in
-		if !param_type_only then exit 0;
+		if !param_type_only then begin close_in source_file; exit 0 end;
 
 		(* Fin de la compilation, sans erreur *)
 		close_in source_file;
