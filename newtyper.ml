@@ -30,6 +30,8 @@ let equiv t1 t2 = (* Égalité de types *)
     |Record l, Record ll -> l = ll
     |Function (l,x),Function (ll,y) -> (l,x) = (ll,y)
     |Access x,Prim(Nulltype)|Prim(Nulltype),Access x -> true
+    |Function ([],x),y -> aux x y
+    |x,Function([],y) -> aux x y
     |_ -> false in
   aux t1 t2;;
 
@@ -84,9 +86,9 @@ let rec search id ml = try (Some(Tmap.find id (List.hd ml))) with
 
 let is_available ml id = match ml with (* Vérifie qu'un identifiant est
                                           utilisable dans une déclaration *)
-	|[] -> true
- |hd::tl -> not (Tmap.mem id hd);;
-
+  |[] -> true
+  |hd::tl -> not (Tmap.mem id hd);;
+  
 let merge_maplist ml = (* Obsolète, mais on ne sait jamais *)
   let f k x y = match x,y with
     |None,None -> None
@@ -97,6 +99,14 @@ let merge_maplist ml = (* Obsolète, mais on ne sait jamais *)
     |hd::tl -> aux tl (Tmap.merge f acc hd) in
   aux ml (Tmap.empty);;
 
+let check_for_def ml p =
+  let is_defined k v = match v with
+    |Type(None),_ -> false
+    |_ -> true in
+  match ml with
+  |[] -> true
+  |hd::tl -> Tmap.for_all is_defined hd;;
+  
 let type_binop o t p = match o,t with (* Typage d'une opération binaire *)
   |BinOp_equal,_|BinOp_different,_
   |BinOp_compare _,Prim(Integer)
@@ -177,12 +187,41 @@ and check_fun_call idf l ml p =
   match (search idf ml) with
   |None -> raise (Type_error (p,idf^" is not declared"))
   |Some(Val(Function(arg,ret)),_) -> begin  match (aux arg l) with
+					    |false -> failwith "This is absolutely impossible !"
 					    |true -> ret
-					    |false -> failwith "wtf ??"
 				     end
-  |_ -> raise (Type_error (p,idf^" is not a function"))
+  |Some(t,_) -> raise (Type_error (p,idf^" is not a function : "^(to_string t)))
 	
 (* Des bisous historiques <3 *)
+
+let rec check_proc_call idf l ml p =
+  let fst (a,b,c) = a in
+  let snd (a,b,c) = b in
+  let trd (a,b,c) = c in
+  let rec aux lform leff = match lform,leff with
+    |(hd1::tl1),(hd2::tl2) -> begin match (type_expr hd2 ml) with
+				    |t,b when (equiv t (snd hd1)) ->
+				      begin match b,(trd hd1) with
+					    |false,true -> raise
+							     (Type_error (p,
+									  "Call to "^idf^
+									    " : arg "^(fst hd1)^
+									      "has to be a left val"))
+					    |_ -> aux tl1 tl2
+				      end						    
+				    |_ -> raise (Type_error (p,"Call to "^idf^
+								 " : wrong type for arg "^(fst hd1)))
+			      end
+    |hd::tl,[] -> raise (Type_error (p,"Call to "^idf^" : argument(s) missing !"))
+    |[],hd::tl -> raise (Type_error (p,"Call to "^idf^" : too many arguments !"))
+    |[],[] -> true in
+  match (search idf ml) with
+  |None -> raise (Type_error (p,idf^" is not declared"))
+  |Some(Val(Function(arg,Prim(Nulltype))),_) -> begin  match (aux arg l) with
+					    |false -> failwith "This is absolutely impossible !"
+					    |true -> Prim(Nulltype)
+				     end
+  |Some(t,_) -> raise (Type_error (p,idf^" is not a procedure : "^(to_string t)))
 
 let type_ty t ml p= match t with (* À un ty associe son type *)
   |Ty_var id -> begin match search id ml with
@@ -260,11 +299,23 @@ let rec type_decl (d:declaration) ml cm=
 
   let type_fun id params rettype p = (* Typage d'une fonction *)
     (* On vérifie que son identifiant est disponible. Si oui, on renvoie son
-       type. Les vérifications supplémentaires sont faites dans une fonction
+       type, et que deux paramètres n'ont pas le même nom.
+       Les vérifications supplémentaires sont faites dans une fonction
        mutuellement récursive : context_fun *)
+     let check_fun r p = (* Vérifie que la fonction n'a pas deux params de même id *)
+      (* pseudo linéaire, tail-recursive *)
+      let rec aux l last = match l with
+	|(id,mo,t)::tl when id = last -> raise (Type_error (p,"There are two fields of name "
+							   ^id^" in this record"))
+	|(id,mo,t)::tl -> aux tl id
+	|[] -> (id,Function (r, rettype) ) in
+      let pseudo_compare (id1,mo1,t1) (id2,mo2,t2) = String.compare id1 id2 in
+      let sorted_r = List.sort pseudo_compare r in
+      aux sorted_r "" in
+
     match is_available ml id with
     |false -> raise (Type_error (p,id^" is already declared"))
-    |true -> (id,Function ((type_params params p), rettype)) in
+    |true -> check_fun (type_params params p) p in
 
   let val_and_context_bindings = (* Listes des bindings à ajouter respectivement
                                     à ml, et à cm *)
@@ -292,11 +343,16 @@ let rec type_decl (d:declaration) ml cm=
         (* Cas d'un type défini comme Record. On s'assure que son identifiant
            est disponible, et que les types le composant sont bien définis *)
 				 |true -> [(id,(Type(Some(Record(type_record l d.pos))),true))],[]
-				 |false -> raise (Type_error (d.pos, id^" is not available")) end
+				 |false -> match search id ml with
+					   |Some(Type(None),b) -> [(id,(Type(Some(Record(type_record l d.pos))),true))],[]
+					   |_ -> raise (Type_error (d.pos,id^" is not available"))
+			   end
     |Decl_vars (idl,t,eo) -> type_vars idl t eo d.pos,[]
-    |Decl_procedure (id,ps,ldec,lins) ->
+    |Decl_procedure (id,ps,ldec,lins) when (check_for_def ml (d.pos))->
       (* Une procédure est considérée comme une fonction renvoyant un élément de
          type Nulltype.*)
+      (* On vérifie que tous les types sont définis *)
+      
       (* On type la fonction préalablement *)
       let (k,v as bind) = type_fun id ps (Prim(Nulltype)) (d.pos) in
       (* On construit son contexte (et on vérifie qu'elle est bien formée) *)
@@ -305,14 +361,16 @@ let rec type_decl (d:declaration) ml cm=
 								 ::(List.tl ml)) (d.pos) in
       (* Si tout s'est bien passé, on renvoie les résultats *)
       ([(k,(Val(v),true))],[cont])
-    |Decl_function (id,ps,rty,ldec,lins) ->
+    |Decl_function (id,ps,rty,ldec,lins) when (check_for_def ml (d.pos))->
       (* On type la fonction préalablement *)
       let (k,v as bind) = type_fun id ps (type_ty rty ml d.pos) (d.pos) in
       (* On construit son contexte (et on vérifie qu'elle est bien formée) *)
       let cont = context_fun id ps (type_ty rty ml d.pos) ldec lins ((Tmap.add k (Val(v),true) (List.hd ml))
 						  ::(List.tl ml)) (d.pos) in
       (* Si tout s'est bien passé, on renvoie les résultats *)
-      ([(k,(Val(v),true))],[cont]) in
+      ([(k,(Val(v),true))],[cont])
+    |_ -> raise (Type_error (d.pos,"Some Type is frozen while declaring new function/procedure"))
+  in
 
   (* On rajoute les bindings obtenus dans ml et cm, qu'on renvoie ensuite *)
   ((List.fold_left (fun m (k,v) -> Tmap.add k v m) (List.hd ml) (fst val_and_context_bindings)::(List.tl ml)),
@@ -342,7 +400,7 @@ and type_instr (i:instruction) ml typ =
   (* Appel d'une fonction. On vérifie que les arguments sont corrects :
      les types coïncident, et si un paramètre formel est inOut, l'arg
      lui correspondant est valeur gauche *)
-  |Instr_call (idf,l) -> begin match (check_fun_call idf l ml (i.pos)) with
+  |Instr_call (idf,l) -> begin match (check_proc_call idf l ml (i.pos)) with
 			 |_ -> false end
 
   (* Renvoie d'une valeur (eo), on vérifie que le type de eo est le même que
@@ -407,12 +465,15 @@ and context_fun id params rtype ldec lins ml p=
 				     (fun (l,c) d -> type_decl d l c) (ml,mc) ldec in
   (* Vérifier que l'on obtient bien une fonction en testant les instructions *)
   let handle_inst lins ml mc = match check_block lins ml rtype with
-    |false -> raise (Type_error (p,"no return in a function"))
-    |true -> {node = List.hd ml ; subtree = mc} in
+    |false when (rtype = Prim(Nulltype)) -> {node = List.hd ml; subtree = mc}
+    |true -> {node = List.hd ml ; subtree = mc}
+    |_ -> raise (Type_error (p,id^" doesn't return a value"))
+  in
   (* Renvoyer une association (id,context_tree) *)
   let mapl = handle_decl ldec (new_map params ml) (Tmap.empty) in
-  (id,handle_inst lins (fst mapl) (snd mapl));;
-
+  match check_for_def (fst mapl) (List.hd lins) with
+  |true -> (id,handle_inst lins (fst mapl) (snd mapl))
+  |false -> raise (Type_error (((List.hd lins).pos),"Type declared and undefined before instructions"));; 
 let context_program ((id,decll,insl):program) =
   (* Init_map est ainsi la map contenant les types définis de base dans le
      langage. Ainsi, ils peuvent être shadowés par des déclarations nouvelles *)
@@ -420,8 +481,8 @@ let context_program ((id,decll,insl):program) =
 		   ("boolean",(Type(Some(Prim(Boolean))),true));
 		   ("character",(Type(Some(Prim(Character))),true));
 		   ("nulltype",(Type(Some(Prim(Nulltype))),true));
-		   ("put",(Type(Some(Function([("c",Prim(Character),false)],Prim(Nulltype)))),true));
-		   ("new_line",(Type(Some(Function([],Prim(Nulltype)))),true))
+		   ("put",(Val(Function([("c",Prim(Character),false)],Prim(Nulltype))),true));
+		   ("new_line",(Val(Function([],Prim(Nulltype))),true))
 		  ] in
   let init_map = List.fold_left (fun m (k,v) -> Tmap.add k v m) (Tmap.empty) init_list in
   context_fun id [] (Prim(Nulltype)) decll insl [Tmap.empty;init_map] (Lexing.dummy_pos,Lexing.dummy_pos);;
