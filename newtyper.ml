@@ -17,7 +17,7 @@ type primitive = (* Ce sont les types de base du langage Mini ADA *)
 
 type expr_type = (* Tout type définissable en Mini ADA rentre dans ce type *)
   |Prim of primitive
-  |Access of expr_type
+  |Access of (expr_type option) ref
   |Record of (ident*expr_type) list
   |Function of (ident*expr_type*bool) list * expr_type (* La liste représente
                                                           les arguments,
@@ -26,7 +26,8 @@ type expr_type = (* Tout type définissable en Mini ADA rentre dans ce type *)
 let equiv t1 t2 = (* Égalité de types *)
   let rec aux a b = match a,b with
     |Prim(x),Prim(y) -> x=y
-    |Access(x), Access(y) -> (aux x y)
+    |Access(x), Access(y) -> (!x)==(!y) (* L'égalité de types de pointeurs n'est vérifiée que s'ils
+                                    pointent vers le même type *)
     |Record l, Record ll -> l = ll
     |Function (l,x),Function (ll,y) -> (l,x) = (ll,y)
     |Access x,Prim(Nulltype)|Prim(Nulltype),Access x -> true
@@ -38,7 +39,7 @@ let equiv t1 t2 = (* Égalité de types *)
 type decl_type = (* Ce sont les types qui seront présents dans nos Tmap. Ainsi,
                     on prendra en compte les id de variables et de types *)
   |Val of expr_type
-  |Type of expr_type option (* Option pour les déclarations de types
+  |Type of (expr_type option) ref (* Option pour les déclarations de types
                                sans définition *) 
 let to_string decl_typ =
   let rec aux exp_typ = match exp_typ with
@@ -46,13 +47,16 @@ let to_string decl_typ =
     |Prim Boolean -> "Boolean"
     |Prim Character -> "Character"
     |Prim Nulltype -> "Nulltype"
-    |Access t -> "Access to "^(aux t)
+    |Access t -> "Access to "^(match !t with
+			       |None -> "nothing"
+			       |Some(tt) -> aux tt)
     |Record l -> "Record{"^(List.fold_left (fun s (id,t) -> s^"; "^id^" : "^(aux t)) "" l)^";}"
     |Function (_,t) -> "Function returning "^(aux t) in
   match decl_typ with
   |Val(t) -> "Value of "^(aux t)
-  |Type(None) -> "Type (undefined yet)"
-  |Type(Some t) -> "Type "^(aux t);;
+  |Type(x) -> match !x with
+	      |None -> "Type (undefined yet)"
+	      |Some t -> "Type "^(aux t);;
   
 type context_tree = {
   node : (decl_type * bool) Tmap.t;
@@ -101,7 +105,7 @@ let merge_maplist ml = (* Obsolète, mais on ne sait jamais *)
 
 let check_for_def ml p =
   let is_defined k v = match v with
-    |Type(None),_ -> false
+    |Type(t),_ when !t = None -> false
     |_ -> true in
   match ml with
   |[] -> true
@@ -140,8 +144,7 @@ let rec type_expr (e:expression) ml = match e.value with
 		       |_ -> raise (Type_error (e.pos,"Wrong type for this unop")) end
   |Expr_new id -> begin match search id ml with
       (* Instanciation d'un record, en donnant un pointeur vers ce dernier *)
-			|Some(Type(Some t), b) -> (Access t,false)
-			|Some(Type(None),b) -> (Access(Prim(Nulltype)),false)
+			|Some(Type(re), b) -> (Access re,false)
 			|None -> raise (Type_error (e.pos,"Undeclared id "^id))
 			|Some(Val(_),_) -> raise (Type_error (e.pos, id^" is a value, not a type"))
 		  end
@@ -155,14 +158,25 @@ let rec type_expr (e:expression) ml = match e.value with
 and type_acc ac ml p = match ac with
   (* Typage d'un accès à une variable ou à un champs d'un Record *)
   |Acc_var id -> begin match search id ml with (* Cas variable *)
-		 |Some(Val(t),b) -> (t,b)
-		 |_ -> raise (Type_error (p,"acc_var TBM")) end
+		       |Some(Val(Function([],t)),b) -> (t,false)
+		       |Some(Val(t),b) -> (t,b)
+		       |_ -> raise (Type_error (p,"acc_var TBM")) end
   |Acc_field (e,id) -> match type_expr e ml with (* Cas champs Record *)
 		       |(Record l,b) -> begin try (List.assoc id l,b) with
 					  |Not_found -> raise (Type_error (e.pos,"acc_record TBM")) end
-		       |(Access (Record l),b) -> begin try (List.assoc id l,true) with
-						   |Not_found -> raise (Type_error (e.pos,"acc_access_record TBM")) end
-		       |_ -> raise (Type_error (e.pos,"acc_field TBM"))
+		       |(Access r,b) -> begin match !r with
+						|Some(Record l) -> begin
+								   try (List.assoc id l,true) with
+								   |Not_found ->
+								     raise
+								       (Type_error
+									  (e.pos,
+									   "acc_access_record TBM"))
+								 end
+						|_ ->raise (Type_error (e.pos,"Not a record, can't "
+									      ^"access a field !"))
+					  end
+		       |_ -> raise (Type_error (e.pos,"Not a record, can't access a field !"))
 and check_fun_call idf l ml p =
   let fst (a,b,c) = a in
   let snd (a,b,c) = b in
@@ -227,21 +241,22 @@ let type_ty t ml p= match t with (* À un ty associe son type *)
   |Ty_var id -> begin match search id ml with
 		      |None -> raise (Type_error (p,"type_ty (var) TBM"))
 		      |Some (dt,b) -> match dt with
-				      |Val _ |Type None -> raise (Type_error (p,id^" is not a type"))
-				      |Type Some(x) -> x end
+				      |Val _ -> raise (Type_error (p,id^" is not a type"))
+				      |Type r -> match !r with
+						 |None -> raise (Type_error (p, id^" is not defined"))
+						 |Some ft -> ft end
   |Ty_access id -> match search id ml with
 		   |None -> raise (Type_error (p,id^" was not declared"))
 		   |Some (dt,b) -> match dt with
 				   |Val _ -> raise (Type_error (p,id^" is not a type"))
-				   |Type None -> Access(Prim(Nulltype))
-				   |Type Some(x) -> Access(x)
+				   |Type r -> Access r
 
 let rec type_decl (d:declaration) ml cm=
   (* Typage de l'identifiant déclaré. La fonction renvoie la liste de map
      incrémentée. Si une fonction est déclarée, on ajoute à cm le binding entre
      l'identifiant de cette fonction, et son contexte *)
 
-  let type_record r p = (* À la définition d'un record associe son type *)
+  let type_record r ml p = (* À la définition d'un record associe son type *)
     let check_rec r p = (* Vérifie que le record ne contient pas deux champs de même id *)
       (* pseudo linéaire, tail-recursive *)
       let rec aux l last = match l with
@@ -323,16 +338,14 @@ let rec type_decl (d:declaration) ml cm=
     |Decl_type id -> begin match is_available ml id with
         (* Cas d'un type déclaré non défini, on ne fait que vérifier la
            disponibilité de l'identifiant *)
-			   |true -> [(id,(Type(None),true))],[]
+			   |true -> [(id,(Type(ref(None)),true))],[]
 			   |_ -> raise (Type_error (d.pos,id^" is not available")) end
     |Decl_access (id1,id2) -> begin match (is_available ml id1),(search id2 ml) with
         (* Cas d'un type défini comme pointeur vers un autre type. On vérifie
            que l'identifiant du premier est libre, et celui du deuxième utilisé
            par un type. *)
-				    |true,Some(Type(Some(t)),b)
-				     -> [(id1,(Type(Some(Access(t))),true))],[]
-				    |true,(Some(Type(None),b)) ->
-				      [(id1,(Type(Some(Access(Prim(Nulltype)))),true))],[]
+				    |true,Some(Type(r),b)
+				     -> [(id1,(Type(ref (Some(Access(r)))),true))],[]
 				    |true,Some(Val(_),_) -> raise (Type_error (d.pos,
 									       id2^
 										 " is not a type"))
@@ -342,10 +355,15 @@ let rec type_decl (d:declaration) ml cm=
     |Decl_record (id,l) -> begin match is_available ml id with
         (* Cas d'un type défini comme Record. On s'assure que son identifiant
            est disponible, et que les types le composant sont bien définis *)
-				 |true -> [(id,(Type(Some(Record(type_record l d.pos))),true))],[]
-				 |false -> match search id ml with
-					   |Some(Type(None),b) -> [(id,(Type(Some(Record(type_record l d.pos))),true))],[]
-					   |_ -> raise (Type_error (d.pos,id^" is not available"))
+				 |true -> let newml = (Tmap.add id (Type(ref (None)),true) (List.hd ml))::
+							(List.tl ml) in
+				   [(id,(Type(ref(Some (Record(type_record l newml d.pos)))),true))],[]
+				 |false -> begin
+					   match search id ml with
+					   |Some(Type(t),b) when !t = None ->
+					     let () = (t:= Some(Record(type_record l ml d.pos))) in								   [],[]
+					   |_ -> raise (Type_error (d.pos, id^" is not available"))
+					 end
 			   end
     |Decl_vars (idl,t,eo) -> type_vars idl t eo d.pos,[]
     |Decl_procedure (id,ps,ldec,lins) when (check_for_def ml (d.pos))->
@@ -477,10 +495,10 @@ and context_fun id params rtype ldec lins ml p=
 let context_program ((id,decll,insl):program) =
   (* Init_map est ainsi la map contenant les types définis de base dans le
      langage. Ainsi, ils peuvent être shadowés par des déclarations nouvelles *)
-  let init_list = [("integer",(Type(Some(Prim(Integer))),true));
-		   ("boolean",(Type(Some(Prim(Boolean))),true));
-		   ("character",(Type(Some(Prim(Character))),true));
-		   ("nulltype",(Type(Some(Prim(Nulltype))),true));
+  let init_list = [("integer",(Type(ref(Some(Prim(Integer)))),true));
+		   ("boolean",(Type(ref(Some(Prim(Boolean)))),true));
+		   ("character",(Type(ref(Some(Prim(Character)))),true));
+		   ("nulltype",(Type(ref(Some(Prim(Nulltype)))),true));
 		   ("put",(Val(Function([("c",Prim(Character),false)],Prim(Nulltype))),true));
 		   ("new_line",(Val(Function([],Prim(Nulltype))),true))
 		  ] in
