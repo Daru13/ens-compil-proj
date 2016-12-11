@@ -96,7 +96,7 @@ let compile () =
 		if !param_parse_only then begin close_in source_file; exit 0 end;
 
 		(* Analyse sémantique et typage *)
-		let typed_program = Newtyper.context_program abstract_syntax in
+		let typed_program = Typer.context_program abstract_syntax in
 		if !param_type_only then begin close_in source_file; exit 0 end;
 
 		(* Production de code : à venir ! *)
