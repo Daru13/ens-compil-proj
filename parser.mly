@@ -1,7 +1,5 @@
 %{
 	open Ast
-
-	(* exception Syntax_error of position * string *)
 %}
 
 (* Symboles terminaux *)
@@ -60,6 +58,7 @@
 %type <Ast.binop> operator
 %type <Ast.var_or_field> access
 
+(* Symbole non-terminal initial *)
 %start program
 
 %%
@@ -195,7 +194,9 @@ mode:
 | IN; 		{ Mod_in }
 | IN; OUT; 	{ Mod_inOut }
 
-/*****************************************************************************/
+(*****************************************************************************)
+(*                                EXPRESSIONS                                *)
+(*****************************************************************************)
 
 expression:
 | int = INT;
@@ -278,6 +279,10 @@ expression:
   	raise (Syntax_error (pos, "invalid expression syntax"))
   }
 
+(*****************************************************************************)
+(*                               INSTRUCTIONS                                *)
+(*****************************************************************************)
+
 instruction:
 | acc = access; COLON_EQUAL; expr = expression; SEMICOLON;
   {
@@ -340,6 +345,10 @@ instruction:
   	raise (Syntax_error (pos, "invalid instruction syntax"))
   }
 */
+
+(*****************************************************************************)
+(*                                OPERATEURS BINAIRES ET VARIABLE/CHAMP                                *)
+(*****************************************************************************)
 
 %inline operator:
 | EQUAL; 			{ BinOp_equal }

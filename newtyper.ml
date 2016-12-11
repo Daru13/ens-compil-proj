@@ -123,7 +123,7 @@ let type_binop o t p = match o,t with (* Typage d'une opération binaire *)
   |BinOp_multiply,Prim(Integer)
   |BinOp_divide,Prim(Integer)
   |BinOp_remainder,Prim(Integer) -> Prim(Integer)
-  |_ -> raise (Type_error (p,"Wrong type for this binop"));;
+  |_ -> raise (Type_error (p,"wrong type in this binary operation"));;
 
 let rec type_expr (e:expression) ml = match e.value with
   (* Typage d'une expression quelconque *)
@@ -132,20 +132,20 @@ let rec type_expr (e:expression) ml = match e.value with
   |Expr_bool _ -> (Prim(Boolean),false) (* Booléen constant *)
   |Expr_null -> (Prim(Nulltype),false) (* null *)
   |Expr_access ac -> type_acc ac ml e.pos (* Accès à une variable
-                                             /*\ Ne pas confondre avec access *)
+                                             /!\ Ne pas confondre avec access *)
   |Expr_binop (a,o,b) -> begin match (type_expr a ml,type_expr b ml) with
 			       |(t1,b1),(t2,b2) when (equiv t1 t2)
 				-> ((type_binop o t1 e.pos),false)
-			       |_ -> raise (Type_error (e.pos,"Wrong type for this binop")) end
+			       |_ -> raise (Type_error (e.pos,"wrong type in this binary operation")) end
   |Expr_unop (o,ee) -> begin match o,(type_expr ee ml) with
       (* Typage des opérateurs unaires *)
 		       |UnOp_not,(Prim(Boolean),_) -> (Prim(Boolean),false)
 		       |UnOp_negative,(Prim(Integer),_) -> (Prim(Integer),false)
-		       |_ -> raise (Type_error (e.pos,"Wrong type for this unop")) end
+		       |_ -> raise (Type_error (e.pos,"wrong type in this unary operation")) end
   |Expr_new id -> begin match search id ml with
       (* Instanciation d'un record, en donnant un pointeur vers ce dernier *)
 			|Some(Type(re), b) -> (Access re,false)
-			|None -> raise (Type_error (e.pos,"Undeclared id "^id))
+			|None -> raise (Type_error (e.pos,"undeclared identifier "^id))
 			|Some(Val(_),_) -> raise (Type_error (e.pos, id^" is a value, not a type"))
 		  end
   |Expr_call (idf,l) -> ((check_fun_call idf l ml (e.pos)),false) 
@@ -153,30 +153,26 @@ let rec type_expr (e:expression) ml = match e.value with
 			  
   |Expr_ascii exp -> match type_expr exp ml with
 		     |Prim(Integer),_ -> (Prim(Character),false)
-		     |_ -> raise (Type_error (e.pos,"character'val TBM"))
+		     |_ -> raise (Type_error (e.pos,"wrong type in character'val expression"))
 
 and type_acc ac ml p = match ac with
   (* Typage d'un accès à une variable ou à un champs d'un Record *)
   |Acc_var id -> begin match search id ml with (* Cas variable *)
 		       |Some(Val(Function([],t)),b) -> (t,false)
 		       |Some(Val(t),b) -> (t,b)
-		       |_ -> raise (Type_error (p,"acc_var TBM")) end
+		       |_ -> raise (Type_error (p, id ^ " is neither a variable nor a procedure")) end
   |Acc_field (e,id) -> match type_expr e ml with (* Cas champs Record *)
 		       |(Record l,b) -> begin try (List.assoc id l,b) with
-					  |Not_found -> raise (Type_error (e.pos,"acc_record TBM")) end
+					  |Not_found -> raise (Type_error (e.pos, id^" is not a record")) end
 		       |(Access r,b) -> begin match !r with
 						|Some(Record l) -> begin
 								   try (List.assoc id l,true) with
 								   |Not_found ->
-								     raise
-								       (Type_error
-									  (e.pos,
-									   "acc_access_record TBM"))
+								     raise (Type_error (e.pos, "wrong access to a record"))
 								 end
-						|_ ->raise (Type_error (e.pos,"Not a record, can't "
-									      ^"access a field !"))
+						|_ ->raise (Type_error (e.pos, "fields are only available in a record"))
 					  end
-		       |_ -> raise (Type_error (e.pos,"Not a record, can't access a field !"))
+		       |_ -> raise (Type_error (e.pos,"fields are only available in a record"))
 and check_fun_call idf l ml p =
   let fst (a,b,c) = a in
   let snd (a,b,c) = b in
@@ -186,27 +182,21 @@ and check_fun_call idf l ml p =
 				    |t,b when (equiv t (snd hd1)) ->
 				      begin match b,(trd hd1) with
 					    |false,true -> raise
-							     (Type_error (p,
-									  "Call to "^idf^
-									    " : arg "^(fst hd1)^
-									      "has to be a left val"))
+							     (Type_error (p, "argument "^(fst hd1)^" must be a left value"))
 					    |_ -> aux tl1 tl2
 				      end						    
-				    |_ -> raise (Type_error (p,"Call to "^idf^
-								 " : wrong type for arg "^(fst hd1)))
+				    |_ -> raise (Type_error (p,"the type of the argument "^(fst hd1)^"is wrong"))
 			      end
-    |hd::tl,[] -> raise (Type_error (p,"Call to "^idf^" : argument(s) missing !"))
-    |[],hd::tl -> raise (Type_error (p,"Call to "^idf^" : too many arguments !"))
+    |hd::tl,[] -> raise (Type_error (p,"missing argument(s) in the call to "^idf))
+    |[],hd::tl -> raise (Type_error (p,"too many argument(s) in the call to "^idf))
     |[],[] -> true in
   match (search idf ml) with
   |None -> raise (Type_error (p,idf^" is not declared"))
   |Some(Val(Function(arg,ret)),_) -> begin  match (aux arg l) with
-					    |false -> failwith "This is absolutely impossible !"
+					    |false -> failwith "(impossible error)"
 					    |true -> ret
 				     end
-  |Some(t,_) -> raise (Type_error (p,idf^" is not a function : "^(to_string t)))
-	
-(* Des bisous historiques <3 *)
+  |Some(t,_) -> raise (Type_error (p,idf^" is not a function, but of type "^(to_string t)))
 
 let rec check_proc_call idf l ml p =
   let fst (a,b,c) = a in
@@ -218,35 +208,33 @@ let rec check_proc_call idf l ml p =
 				      begin match b,(trd hd1) with
 					    |false,true -> raise
 							     (Type_error (p,
-									  "Call to "^idf^
-									    " : arg "^(fst hd1)^
-									      "has to be a left val"))
+									  "argument "^(fst hd1)^" must be a left value"))
 					    |_ -> aux tl1 tl2
 				      end						    
-				    |_ -> raise (Type_error (p,"Call to "^idf^
-								 " : wrong type for arg "^(fst hd1)))
+				    |_ -> raise (Type_error (p,"the type of the argument "^idf^
+								 " is wrong"^(fst hd1)))
 			      end
-    |hd::tl,[] -> raise (Type_error (p,"Call to "^idf^" : argument(s) missing !"))
-    |[],hd::tl -> raise (Type_error (p,"Call to "^idf^" : too many arguments !"))
+    |hd::tl,[] -> raise (Type_error (p,"missing argument(s) in the call to "^idf))
+    |[],hd::tl -> raise (Type_error (p,"too many argument(s) in the call to "^idf))
     |[],[] -> true in
   match (search idf ml) with
   |None -> raise (Type_error (p,idf^" is not declared"))
   |Some(Val(Function(arg,Prim(Nulltype))),_) -> begin  match (aux arg l) with
-					    |false -> failwith "This is absolutely impossible !"
+					    |false -> failwith "(impossible error)"
 					    |true -> Prim(Nulltype)
 				     end
-  |Some(t,_) -> raise (Type_error (p,idf^" is not a procedure : "^(to_string t)))
+  |Some(t,_) -> raise (Type_error (p,idf^" is not a procedure, but of type "^(to_string t)))
 
 let type_ty t ml p= match t with (* À un ty associe son type *)
   |Ty_var id -> begin match search id ml with
-		      |None -> raise (Type_error (p,"type_ty (var) TBM"))
+		      |None -> raise (Type_error (p,"type "^id^"is undefined"))
 		      |Some (dt,b) -> match dt with
 				      |Val _ -> raise (Type_error (p,id^" is not a type"))
 				      |Type r -> match !r with
-						 |None -> raise (Type_error (p, id^" is not defined"))
+						 |None -> raise (Type_error (p, "type "^id^" is undefined"))
 						 |Some ft -> ft end
   |Ty_access id -> match search id ml with
-		   |None -> raise (Type_error (p,id^" was not declared"))
+		   |None -> raise (Type_error (p,"type "^id^" is undefined"))
 		   |Some (dt,b) -> match dt with
 				   |Val _ -> raise (Type_error (p,id^" is not a type"))
 				   |Type r -> Access r
@@ -260,7 +248,7 @@ let rec type_decl (d:declaration) ml cm=
     let check_rec r p = (* Vérifie que le record ne contient pas deux champs de même id *)
       (* pseudo linéaire, tail-recursive *)
       let rec aux l last = match l with
-	|(id,t)::tl when id = last -> raise (Type_error (p,"There are two fields of name "
+	|(id,t)::tl when id = last -> raise (Type_error (p,"there are two fields named "
 							   ^id^" in this record"))
 	|(id,t)::tl -> aux tl id
 	|[] -> r in
@@ -273,7 +261,7 @@ let rec type_decl (d:declaration) ml cm=
 	     |[] -> acc
 	     |hd::tl -> aux tl (fst hd) (type_ty (snd hd) ml p) acc p in
     match r with
-    |[] -> raise (Type_error (p,"Should Not Happen"))
+    |[] -> raise (Type_error (p,"(should not happen)"))
     |hd::tl -> List.rev  (check_rec (aux tl (fst hd) (type_ty (snd hd) ml p) [] p) p) in
 
   let type_vars idl t eo p = (* Type une déclaration de variable(s) *)
@@ -286,9 +274,9 @@ let rec type_decl (d:declaration) ml cm=
 	     let typ =  type_ty t ml p in match eo with
 	      |None -> List.map (fun id -> (id,(Val(typ),true))) idl
 	      |Some e when (equiv (fst (type_expr e ml)) typ) -> List.map (fun id -> (id,(Val(typ),true))) idl
-	      |_ -> raise (Type_error (p,"The expression type is not the same as the given type"))
+	      |_ -> raise (Type_error (p,"the expression type does not match the variable type"))
 	    end
-    |false -> raise (Type_error (d.pos,"Some id(s) are already declared")) in
+    |false -> raise (Type_error (d.pos,"at least one identifier is already declared")) in
   (* On renvoie la liste de bindings à rajouter à notre liste de maps *)
 
   let type_params l p= (*Typage de paramètres afin de les insérer dans
@@ -320,7 +308,7 @@ let rec type_decl (d:declaration) ml cm=
      let check_fun r p = (* Vérifie que la fonction n'a pas deux params de même id *)
       (* pseudo linéaire, tail-recursive *)
       let rec aux l last = match l with
-	|(id,mo,t)::tl when id = last -> raise (Type_error (p,"There are two fields of name "
+	|(id,mo,t)::tl when id = last -> raise (Type_error (p,"there are two fields named "
 							   ^id^" in this record"))
 	|(id,mo,t)::tl -> aux tl id
 	|[] -> (id,Function (r, rettype) ) in
@@ -346,9 +334,7 @@ let rec type_decl (d:declaration) ml cm=
            par un type. *)
 				    |true,Some(Type(r),b)
 				     -> [(id1,(Type(ref (Some(Access(r)))),true))],[]
-				    |true,Some(Val(_),_) -> raise (Type_error (d.pos,
-									       id2^
-										 " is not a type"))
+				    |true,Some(Val(_),_) -> raise (Type_error (d.pos, id2^" is not a type"))
 				    |true,None -> raise (Type_error (d.pos, id2^" is not declared"))
 				    |false,_ -> raise (Type_error (d.pos, id1^" is not available"))
 			      end
@@ -361,7 +347,7 @@ let rec type_decl (d:declaration) ml cm=
 				 |false -> begin
 					   match search id ml with
 					   |Some(Type(t),b) when !t = None ->
-					     let () = (t:= Some(Record(type_record l ml d.pos))) in								   [],[]
+					     let () = (t:= Some(Record(type_record l ml d.pos))) in	[],[]
 					   |_ -> raise (Type_error (d.pos, id^" is not available"))
 					 end
 			   end
@@ -383,11 +369,11 @@ let rec type_decl (d:declaration) ml cm=
       (* On type la fonction préalablement *)
       let (k,v as bind) = type_fun id ps (type_ty rty ml d.pos) (d.pos) in
       (* On construit son contexte (et on vérifie qu'elle est bien formée) *)
-      let cont = context_fun id ps (type_ty rty ml d.pos) ldec lins ((Tmap.add k (Val(v),true) (List.hd ml))
-						  ::(List.tl ml)) (d.pos) in
+      let cont = context_fun id ps (type_ty rty ml d.pos) ldec lins
+        ((Tmap.add k (Val(v),true) (List.hd ml))::(List.tl ml)) (d.pos) in
       (* Si tout s'est bien passé, on renvoie les résultats *)
       ([(k,(Val(v),true))],[cont])
-    |_ -> raise (Type_error (d.pos,"Some Type is frozen while declaring new function/procedure"))
+    |_ -> raise (Type_error (d.pos,"some type is frozen while declaring a new function/procedure"))
   in
 
   (* On rajoute les bindings obtenus dans ml et cm, qu'on renvoie ensuite *)
@@ -412,8 +398,8 @@ and type_instr (i:instruction) ml typ =
   |Instr_set (vof,e) -> begin match type_acc vof ml i.pos with
 			|t,true -> begin match type_expr e ml with
 					 |tt,_ when (equiv t tt) -> false
-					 |_ -> raise (Type_error (i.pos,"Types don't match")) end
-			|_ -> raise (Type_error (i.pos,"Not a left value")) end
+					 |_ -> raise (Type_error (i.pos,"types do not match")) end
+			|_ -> raise (Type_error (i.pos,"this is not a left value")) end
 
   (* Appel d'une fonction. On vérifie que les arguments sont corrects :
      les types coïncident, et si un paramètre formel est inOut, l'arg
@@ -428,9 +414,9 @@ and type_instr (i:instruction) ml typ =
 		      |None when (equiv typ (Prim(Nulltype))) -> true
 		      |Some e -> begin match type_expr e ml with
 				       |t,_ when (equiv t typ) -> true
-				       |_ -> raise (Type_error (i.pos,"Not the right return type"))
+				       |_ -> raise (Type_error (i.pos,"wrong return type"))
 				 end
-		      |_ -> raise (Type_error (i.pos,"Returning void in a function"))
+		      |_ -> raise (Type_error (i.pos,"wrong function return type"))
 		      end
 
   (* Bloc d'instructions, on renvoie true ssi le bloc fini par un return correct
@@ -442,7 +428,7 @@ and type_instr (i:instruction) ml typ =
      On renvoie true ssi chacun des blocs fini par un return correct *)
   |Instr_if (ll,els) -> let check (e,l) = match type_expr e ml with
 			  |t,_ when (equiv t (Prim(Boolean))) -> check_block l ml typ
-			  |_ -> raise (Type_error (i.pos,"condition is not boolean")) in
+			  |_ -> raise (Type_error (i.pos,"if condition must be a boolean")) in
 			(List.for_all check ll) && (check_block els ml typ)
 
   (* For (id in ebeg,eend),do(bloc) : on vérifie que id est dispo,
@@ -454,13 +440,13 @@ and type_instr (i:instruction) ml typ =
       match ((type_expr ebeg ml),(type_expr eend ml),(is_available ml id)) with
       |((Prim(Integer),_), (Prim(Integer),_) , (true)) ->
 	check_block bloc ((Tmap.add id (Val(Prim(Integer)),false) (List.hd ml))::List.tl ml) typ
-      |_ -> raise (Type_error (i.pos,"Something wrong in for")) end
+      |_ -> raise (Type_error (i.pos,"wrong typing in the fo loop")) end
   (* While(cond), do(bloc) : on vérifie que cond est une expression de type
      booléen, on renvoie true ssi le bloc fini par un return
      (ça n'a pas de sens) *)
   |Instr_while (cond,bloc) -> match type_expr cond ml with
 			      |t,_ when (equiv t (Prim(Boolean))) -> check_block bloc ml typ
-			      |_ -> raise (Type_error (i.pos,"contion is not boolean"))
+			      |_ -> raise (Type_error (i.pos,"while condition must be a boolean"))
 
 and context_fun id params rtype ldec lins ml p=
   (* Initialiser la nouvelle map avec les paramètres, en fonction de in et out *)
@@ -485,13 +471,13 @@ and context_fun id params rtype ldec lins ml p=
   let handle_inst lins ml mc = match check_block lins ml rtype with
     |false when (rtype = Prim(Nulltype)) -> {node = List.hd ml; subtree = mc}
     |true -> {node = List.hd ml ; subtree = mc}
-    |_ -> raise (Type_error (p,id^" doesn't return a value"))
+    |_ -> raise (Type_error (p,id^" does not return a value"))
   in
   (* Renvoyer une association (id,context_tree) *)
   let mapl = handle_decl ldec (new_map params ml) (Tmap.empty) in
   match check_for_def (fst mapl) (List.hd lins) with
   |true -> (id,handle_inst lins (fst mapl) (snd mapl))
-  |false -> raise (Type_error (((List.hd lins).pos),"Type declared and undefined before instructions"));; 
+  |false -> raise (Type_error (((List.hd lins).pos),"undefined type declared before an instruction"));; 
 let context_program ((id,decll,insl):program) =
   (* Init_map est ainsi la map contenant les types définis de base dans le
      langage. Ainsi, ils peuvent être shadowés par des déclarations nouvelles *)

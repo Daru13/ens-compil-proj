@@ -76,10 +76,10 @@ let handle_exception e =
 	| Newtyper.Type_error(pos, msg) ->
 		print_error pos msg;
 		exit 1
-	| _ as e ->
-		raise e; (* TODO: enlever cette ligne, utile pour debug *)
-		(* Printf.eprintf "Fatal error: uncatched exception.\n";
-		exit 2 *)
+	| _ (* as e *) ->
+		(* raise e; *)
+		Printf.eprintf "Fatal error: uncatched exception.\n";
+		exit 2
 ;;
 
 let compile () =	
@@ -91,7 +91,6 @@ let compile () =
 		let source_file = open_source_file () in
 		let lexbuf		= Lexing.from_channel source_file in
 
-		(* TODO : fermeture de fichier ? *)
 		(* Analyse lexicale et syntaxique *)
 		let abstract_syntax = Parser.program Lexer.token lexbuf in
 		if !param_parse_only then begin close_in source_file; exit 0 end;
@@ -99,6 +98,8 @@ let compile () =
 		(* Analyse sémantique et typage *)
 		let typed_program = Newtyper.context_program abstract_syntax in
 		if !param_type_only then begin close_in source_file; exit 0 end;
+
+		(* Production de code : à venir ! *)
 
 		(* Fin de la compilation, sans erreur *)
 		close_in source_file;
