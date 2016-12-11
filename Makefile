@@ -12,7 +12,7 @@ LEXER_FLAGS  =
 LIBS = nums.cma
 
 # Fichiers objets (devant tous être liés)
-OBJS = ast.cmo lexer.cmo parser.cmo newtyper.cmo compiler.cmo
+OBJS = ast.cmo lexer.cmo parser.cmo typer.cmo compiler.cmo
 # OBJS = ast.cmo lexer.cmo parser.cmo compiler.cmo
 
 # Cibles factices
@@ -27,8 +27,8 @@ adac: $(OBJS)
 compiler.cmo: compiler.ml parser.cmo lexer.cmo
 	ocamlc $(CC_FLAGS) parser.mli -c compiler.ml
 
-newtyper.cmo: newtyper.ml ast.cmo
-	ocamlc $(CC_FLAGS) -c newtyper.ml
+typer.cmo: typer.ml ast.cmo
+	ocamlc $(CC_FLAGS) -c typer.ml
 
 parser.cmo: parser.ml ast.cmo
 	ocamlc $(CC_FLAGS) -c parser.ml

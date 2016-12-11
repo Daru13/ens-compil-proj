@@ -73,7 +73,7 @@ let handle_exception e =
 	| Ast.Unmatching_identifiers(pos, msg) ->
 		print_error pos msg;
 		exit 1
-	| Newtyper.Type_error(pos, msg) ->
+	| Typer.Type_error(pos, msg) ->
 		print_error pos msg;
 		exit 1
 	| _ (* as e *) ->

@@ -1,5 +1,3 @@
-typer.ml
-
 lexer.ml
 parser.ml
 *.mli
