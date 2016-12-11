@@ -3,6 +3,9 @@ parser.ml
 *.mli
 *.cmi
 *.cmo
+old
 old/*
+premier\ rendu
+premier\ rendu/*
 parser.conflicts
 adac
