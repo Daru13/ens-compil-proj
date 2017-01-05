@@ -108,7 +108,7 @@ rule token = parse
 					}
 
 | ident as str		{
-					  let lowercase_id = String.lowercase str in
+					  let lowercase_id = String.lowercase_ascii str in
 					  try
 					  	Hashtbl.find keywords lowercase_id
 					  with
@@ -117,7 +117,7 @@ rule token = parse
 
 (* Termes réservés particuliers *)
 | reserved as str 	{
-					  let lowercase_str = String.lowercase str in
+					  let lowercase_str = String.lowercase_ascii str in
 					  match lowercase_str with
 					  | "character'val" -> GET_ASCII
 					  | _ 				->
