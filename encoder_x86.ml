@@ -6,13 +6,13 @@ open Ast
 (*****************************************************************************)
 
 (* Taille d'une adresse/case mémoire (?) en octet *)
-let addr_size = 8 ;;
+let addr_size = 8
 
 (* Registre dans lequel se trouve le résultat d'une évaluation d'expression *)
-let expr_reg = (reg rax) ;;
+let expr_reg = (reg rax)
 
 (* Compteur utilisé pour les labels uniques (boucles, branchements...) *)
-let label_unique_id = ref 0 ;;
+let label_unique_id = ref 0
 
 (*****************************************************************************)
 (*                                  UTILITAIRES                              *)
@@ -140,58 +140,98 @@ let encode_instr_call id expr_l =
 ;;
 
 let encode_instr_return opt_expr =
-	void_instr ()
+	(* S'il y a une valeur de retour, elle est évaluée et placée dans un
+	   registre défini par convention, en l'occurence %rax *)
+	match opt_expr with
+	| None ->
+		(* TODO: vider pile locale, restaurer frame, puis ret *)
+		ret
+	| Some(expr) ->
+		encode_expression expr ++ ret
 ;;
 
-let rec encode_instr_block instr_l =
-	let rec eval_instr text l =
-		match l with
-		| [] ->
-			text
-		| instr :: tail ->
-			let new_text = text ++ (encode_instruction instr.value) in
-			eval_instr new_text tail
+let rec encode_instr_list instr_l =
+	(* Itération sur la liste des instructions à encoder *)
+	List.fold_left (fun text instr -> text ++ (encode_instruction instr.value))
+		(void_instr ()) instr_l
+
+and encode_instr_block instr_l =
+	encode_instr_list instr_l
+
+and encode_instr_if if_test_instr_l else_instr_l =
+	(* Création d'une étiquette unique de fin de branchement *)
+	let if_label_next = get_unique_label "if_next" in
+
+	(* Itération sur chaque couple condition-instructions *)
+	let encode_branch asm (test_expr, instr_l) =
+		let label_false = get_unique_label "if_false" in
+		asm ++ encode_expression test_expr (* Test *)
+			++ testq expr_reg expr_reg
+			++ je label_false 			   (* Saut potentiel si faux *)
+			++ encode_instr_list instr_l   (* Instructions de la branche *)
+			++ jmp if_label_next 		   (* Saut vers la fin du branchement *)
+			++ label label_false
 	in
+	let asm = List.fold_left encode_branch (void_instr ()) if_test_instr_l in
 
-	(* TODO : init text ? *)
-	eval_instr (void_instr ()) instr_l
+	(* Instructions du else, si existantes, et étiquette de fin *)
+	let asm = asm ++ encode_instr_list else_instr_l
+				  ++ label if_label_next in
 
-and encode_instr_if tests_instr_l else_instr_l =
-	void_instr ()
+	asm
 
 and encode_instr_for id reverse begin_expr end_expr instr_l =
-	(* Création d'une étiquette unique pour cette boucle *)
-	let for_label = get_unique_label "for" in
+	(* Création de deux étiquettes uniques pour cette boucle *)
+	let for_label_test = get_unique_label "for_test" in
+	let for_label_next = get_unique_label "for_next" in
 
 	(* Initialisation de la variable de boucle *)
 	let addr = 0 (* TODO *) in
 
-	let text_begin = encode_expression begin_expr
-				  ++ movq expr_reg (ind ~ofs:addr ~scale:addr_size rbp) in
+	let asm = encode_expression begin_expr
+			++ movq expr_reg (ind ~ofs:addr ~scale:addr_size rbp) in
 
-	(* Etiquette de début de boucle et instructions répétées *)
-	let text_label = label for_label in
-	let text_instr =
-		List.fold_left (fun text instr -> text ++ (encode_instruction instr.value))
-		text_label instr_l in
+	(* Etiquette de début, test et saut potentiel *)
+	let asm = asm ++ label for_label_test in
+	let asm = asm ++ encode_expression end_expr
+				  ++ movq expr_reg (reg r14)
+				  ++ movq (ind ~ofs:addr ~scale:addr_size rbp) (reg r15)
+				  ++ cmpq (reg r14) (reg r15)
+				  ++ je for_label_next in
+
+	(* Instructions répétées *)
+	let asm = asm ++ encode_instr_list instr_l in
 
 	(* Incrément ou décrément *)
-	let text_update = movq (ind ~ofs:addr ~scale:addr_size rbp) (reg r15)
-				   ++ if reverse then decq (reg r15) else incq (reg r15)
-				   ++ movq (reg r15) (ind ~ofs:addr ~scale:addr_size rbp) in
+	let asm = asm ++ movq (ind ~ofs:addr ~scale:addr_size rbp) (reg r15)
+				  ++ if reverse then decq (reg r15) else incq (reg r15)
+				  ++ movq (reg r15) (ind ~ofs:addr ~scale:addr_size rbp) in
 
-	(* Comparaison et saut potentiel *)
-	let text_end = encode_expression end_expr
-				++ movq expr_reg (reg r14) in
+	(* Saut vers le début et étiquette de fin *)
+	let asm = asm ++ jmp for_label_test
+				  ++ label for_label_next in
 
-	let text_jump = cmpq (reg r14) (reg r15)
-				 ++ jne for_label in
-
-	text_begin ++ text_label ++ text_instr
-	++ text_update ++ text_end ++ text_jump
+	asm
 
 and encode_instr_while test_expr instr_l =
-	void_instr ()
+	(* Création de deux étiquettes uniques pour cette boucle *)
+	let while_label_test = get_unique_label "while_test" in
+	let while_label_next = get_unique_label "while_next" in
+
+	(* Etiquette de début, test et saut potentiel *)
+	let asm = label while_label_test in
+	let asm = asm ++ encode_expression test_expr
+				  ++ testq expr_reg expr_reg
+				  ++ je while_label_next in
+
+	(* Instructions répétées *)
+	let asm = asm ++ encode_instr_list instr_l in
+
+	(* Saut vers le début et étiquette de fin *)
+	let asm = asm ++ jmp while_label_test
+				  ++ label while_label_next in
+
+	asm
 
 and encode_instruction instr =
 	match instr with
@@ -207,8 +247,8 @@ and encode_instruction instr =
 	| Instr_block (instr_l) ->
 		encode_instr_block instr_l
 
-	| Instr_if (tests_instr_l, else_instr_l) ->
-		encode_instr_if tests_instr_l else_instr_l
+	| Instr_if (if_test_instr_l, else_instr_l) ->
+		encode_instr_if if_test_instr_l else_instr_l
 
 	| Instr_for (id, reverse, begin_expr, end_expr, instr_l) ->
 		encode_instr_for id reverse begin_expr end_expr instr_l
