@@ -8,7 +8,8 @@ open Ast
 (* Taille d'une adresse/case mémoire (?) en octet *)
 let addr_size = 8
 
-(* Registre dans lequel se trouve le résultat d'une évaluation d'expression *)
+(* Opérande (registre %rax) utilisée pour les évaluations d'expressions *)
+(* Note : si modifié, le code doit être mis à jour ! *)
 let expr_reg = (reg rax)
 
 (* Compteur utilisé pour les labels uniques (boucles, branchements...) *)
@@ -42,10 +43,207 @@ let get_unique_label prefix =
 (*                                 EXPRESSIONS                               *)
 (*****************************************************************************)
 
-(* TODO *)
+let encode_expr_int n =
+	movslq (imm n) rax
+;;
 
-let encode_expression expr =
+let encode_expr_char c =
+	let char_int = int_of_char c in
+	movslq (imm char_int) rax
+;;
+
+let encode_expr_bool b =
+	let bool_int = match b with
+	| true  -> 1
+	| false -> 0
+	in
+	movslq (imm bool_int) rax
+;;
+
+let encode_expr_null () =
+	movslq (imm 0) rax
+;;
+
+(* TODO *)
+let encode_expr_access var_field =
 	void_instr ()
+;;
+
+let rec encode_expr_binop op expr_1 expr_2 =
+
+	(* Registres contenant les évaluations des deux expressions *)
+	let reg_expr_1 = (reg r15) in
+	let reg_expr_2 = (reg rax) in
+
+	(* Différentes évaluations des expressions, utilisées plus tard *)
+	let asm_eval_expr = encode_expression expr_1
+					 ++ movq expr_reg reg_expr_1
+					 ++ encode_expression expr_2 in
+
+	(* La ou les instructions à effectuer dépendent de l'opérateur binaire
+	   Les booléens sur 8 bits sont systématiquement étendus sur 64 bits *)
+	match op with
+	| BinOp_equal ->
+		asm_eval_expr ++
+		cmpq reg_expr_1 reg_expr_2 ++
+		sete (reg r15b) ++
+		movsbq (reg r15b) rax
+
+	| BinOp_different ->
+		asm_eval_expr ++
+		cmpq reg_expr_1 reg_expr_2 ++
+		setne (reg r15b) ++
+		movsbq (reg r15b) rax
+
+	| BinOp_compare (comparator) ->
+		(* Quatre types de comparaisons sont définis *)
+		let asm_set = begin match comparator with
+		| Greater_than -> setl (reg r15b)
+		| Greater_eq -> setle (reg r15b)
+		| Less_than -> setg (reg r15b)
+		| Less_eq -> setge (reg r15b)
+		end in
+		cmpq reg_expr_1 reg_expr_2 ++
+		asm_set ++
+		movsbq (reg r15b) rax
+
+	| BinOp_plus ->
+		asm_eval_expr ++
+		addq reg_expr_1 reg_expr_2
+
+	| BinOp_minus ->
+		asm_eval_expr ++
+		subq reg_expr_1 reg_expr_2
+
+	| BinOp_multiply ->
+		asm_eval_expr ++
+		imulq reg_expr_1 reg_expr_2
+
+	| BinOp_divide ->
+		(* TODO : simplifier cette étape ? quid de l'ordre d'évaluation ? *)
+		asm_eval_expr ++
+
+		movq reg_expr_2 (reg r14) ++
+		movq reg_expr_1 (reg rax) ++
+		cqto ++
+		idivq (reg r14) (* quotient mis dans %rax = rax par idivq *)
+
+	| BinOp_remainder ->
+		(* TODO : simplifier cette étape ? quid de l'ordre d'évaluation ? *)
+		asm_eval_expr ++
+
+		movq reg_expr_2 (reg r14) ++
+		movq reg_expr_1 (reg rax) ++
+		cqto ++
+		idivq (reg r14) ++
+		movq (reg rdx) (reg rax)
+
+	| BinOp_and ->
+		asm_eval_expr ++
+		addq reg_expr_1 reg_expr_2 ++
+		cmpq (imm 2) reg_expr_2 ++
+		sete (reg r15b) ++
+		movsbq (reg r15b) rax
+
+	| BinOp_andThen ->
+		let and_label_false = get_unique_label "and_false_" in
+		let and_label_end = get_unique_label "and_end_" in
+
+		encode_expression expr_1 ++
+		testq reg_expr_1 reg_expr_1 ++
+		je and_label_false ++
+		encode_expression expr_2 ++
+		testq reg_expr_2 reg_expr_2 ++
+		je and_label_false ++
+		movq (imm 1) (reg rax) ++
+		jmp and_label_end ++
+		label and_label_false ++
+		movq (imm 0) (reg rax) ++
+		label and_label_end
+
+	| BinOp_or ->
+		asm_eval_expr ++
+		addq reg_expr_1 reg_expr_2 ++
+		setg (reg r15b) ++
+		movsbq (reg r15b) rax
+
+	| BinOp_orElse ->
+		let or_label_false = get_unique_label "or_false_" in
+		let or_label_end = get_unique_label "or_end_" in
+
+		encode_expression expr_1 ++
+		testq reg_expr_1 reg_expr_1 ++
+		je or_label_false ++
+		encode_expression expr_2 ++
+		testq reg_expr_2 reg_expr_2 ++
+		je or_label_false ++
+		movq (imm 1) (reg rax) ++
+		jmp or_label_end ++
+		label or_label_false ++
+		movq (imm 0) (reg rax) ++
+		label or_label_end
+
+and encode_expr_unop op expr =
+	(* La ou les instructions à effectuer dépendent de l'opérateur unaire *)
+	match op with
+	| UnOp_not ->
+		encode_expression expr ++
+		cmpq (reg rax) (reg rax) ++
+		cmovne (imm 0) (reg rax) ++
+		cmove  (imm 1) (reg rax)
+
+	| UnOp_negative ->
+		encode_expression expr ++
+		negq (reg rax)
+
+(* TODO *)
+and encode_expr_new id =
+	(* TODO : taille des enregistrements / alignement ? *)
+	void_instr ()
+
+(* TODO *)
+and encode_expr_call id expr_l =
+	void_instr ()
+
+and encode_expr_ascii expr =
+	(* Seul l'octet de poids faible est retenu lors d'une transformation
+	   en caractère ASCII (0-255) *)
+	encode_expression expr ++ movsbq (reg al) rax
+
+(* TODO : problème avec champs d'enregistrements portant le même nom ? *)
+and encode_expression (expr: expression) =
+	let expr = expr.value in 
+
+	match expr with
+	| Expr_int (n) ->
+		encode_expr_int n
+
+	| Expr_char (c) ->
+		encode_expr_char c
+
+	| Expr_bool (b) ->
+		encode_expr_bool b
+
+	| Expr_null ->
+		encode_expr_null ()
+
+	| Expr_access (var_field) ->
+		encode_expr_access var_field
+
+	| Expr_binop (expr_1, op, expr_2) ->
+		encode_expr_binop op expr_1 expr_2
+
+	| Expr_unop (op, expr) ->
+		encode_expr_unop op expr
+
+	| Expr_new (id) ->
+		encode_expr_new id
+
+	| Expr_call (id, expr_l) ->
+		encode_expr_call id expr_l
+
+	| Expr_ascii (expr) ->
+		encode_expr_ascii expr
 ;;
 
 (*****************************************************************************)
@@ -121,6 +319,8 @@ let encode_instr_set var_field expr =
 ;;
 
 let encode_instr_call id expr_l =
+	(* TODO: cas particuliers des opérations de lecture/écriture ! *)
+
 	let text_save = save_context () in
 
 	(* Evalue puis empile chaque instruction formant un paramètre *)
