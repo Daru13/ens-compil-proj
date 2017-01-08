@@ -308,18 +308,18 @@ val setb : [`B] operand -> text  (* <  non signé *)
 val setbe: [`B] operand -> text  (* <= non signé *)
   (** positionne l'octet opérande à 1 ou 0 selon que le test est vrai ou non *)
 
-val cmove : operand -> operand -> text
-val cmovne: operand -> operand -> text
-val cmovs : operand -> operand -> text
-val cmovns: operand -> operand -> text
-val cmovg : operand -> operand -> text
-val cmovge: operand -> operand -> text
-val cmovl : operand -> operand -> text
-val cmovle: operand -> operand -> text
-val cmova : operand -> operand -> text
-val cmovae: operand -> operand -> text
-val cmovb : operand -> operand -> text
-val cmovbe: operand -> operand -> text
+val cmove : [`Q] operand -> [`Q] operand -> text
+val cmovne: [`Q] operand -> [`Q] operand -> text
+val cmovs : [`Q] operand -> [`Q] operand -> text
+val cmovns: [`Q] operand -> [`Q] operand -> text
+val cmovg : [`Q] operand -> [`Q] operand -> text
+val cmovge: [`Q] operand -> [`Q] operand -> text
+val cmovl : [`Q] operand -> [`Q] operand -> text
+val cmovle: [`Q] operand -> [`Q] operand -> text
+val cmova : [`Q] operand -> [`Q] operand -> text
+val cmovae: [`Q] operand -> [`Q] operand -> text
+val cmovb : [`Q] operand -> [`Q] operand -> text
+val cmovbe: [`Q] operand -> [`Q] operand -> text
   (** N'effectue l'opération mov que si la condition est vérifiée *)
 
 (** {2 Manipulation de la pile} *)
