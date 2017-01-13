@@ -1,14 +1,15 @@
 open X86_64
 open Ast
 open Symbol_table
-
+open Typer
+       
 (*****************************************************************************)
 (*                              VARIABLES GLOBALES                           *)
 (*****************************************************************************)
 
 (* Taille d'une adresse/case mémoire (?) en octet *)
 let addr_size = 8
-
+let int_size = 4 (* pour l'instant les fonctions sont robustes au changement de int_size *)
 (* Opérande (registre %rax) utilisée pour les évaluations d'expressions *)
 (* Note : si modifié, le code doit être mis à jour ! *)
 let expr_reg = (reg rax)
@@ -34,10 +35,93 @@ let get_unique_label prefix =
 	new_label
 ;;
 
+(* map qui concatène les listes. Tail-recursive. *)
+let op_map l f =
+  let rec aux2 l_y acc = match l_y with
+    |[] -> acc
+    |hd::tl -> aux2 tl (hd::acc) in
+  let rec aux l acc = match l with
+    |[] -> acc
+    |hd::tl -> aux tl (aux2 (f hd) acc) in
+  List.rev (aux l []);;
+
 (*****************************************************************************)
 (*                          ACCESS AUX VARIABLES/CHAMPS                      *)
 (*****************************************************************************)
+type signature = (ident*expr_type*bool) list * expr_type;;
 
+let rec size_exp_type et = match et with (* Donne la taille d'un élément de type "et", 
+  en octets *)
+  |Prim _ -> int_size
+  |Access _ -> addr_size
+  |Record l -> List.fold_left (fun s (id,t) -> s+(size_exp_type t)) 0 l
+  |Function _ -> failwith "size of fun...l58";;
+  
+let locate_arg arg ((l,t):signature) =
+  (* Renvoie le nombre d'octets à remonter, depuis le premier argument rencontré,
+     pour retrouver l'argument d'identifiant arg *)
+  let rec aux l acc = match l with
+    |(i,t,b)::tl when i = arg -> Some(acc)
+    |(i,t,b)::tl -> aux l (acc - 1)
+    |[] -> None in
+  aux l (List.fold_left (fun s (id,t,b) -> s+(size_exp_type t)) 0 l);;
+
+let locate_var id (dl:declaration list) ml =
+  (* Renvoie le nombre d'octets à descendre, depuis la première variable locale
+     rencontrée, pour retrouver celle d'identifiant id *)
+  let decl_filt (d:declaration) = match d.value with
+    |Decl_type _ -> []
+    |Decl_access _ -> []
+    |Decl_record _ -> []
+    |Decl_procedure _ -> []
+    |Decl_function _ -> []
+			  (* Ces decls ne mènent pas à l'affectation de 
+    quoi que ce soit *)
+    |Decl_vars (idl,ty,eo) ->
+      match ty with
+      |Ty_access _ -> List.map (fun id -> (id,8)) idl
+      |Ty_var id ->
+	match search id ml with
+	|Some(Type r) -> begin match !r with
+			 |None -> failwith "typing went bad"
+			 |Some(et) -> let size = size_exp_type et in
+				      List.map (fun id -> (id,size)) idl end
+	|_ -> failwith "typing went bad" in  
+  let rec aux2 properl sacc = match properl with
+    |[] -> (false,sacc)
+    |(i,s)::tl when i = id -> (true,sacc)
+    |(i,s)::tl -> aux2 tl (sacc+s) in
+  let rec aux l acc = match l with
+    |[] -> None
+    |hd::tl -> match (aux2 (decl_filt hd) 0) with
+	       |(true,n) -> Some(acc+n)
+	       |(false,n) -> aux tl (acc+n) in
+  aux dl 0;;
+
+  (* Pour localiser un identifiant totalement, on doit pouvoir remonter. On 
+suppose qu'on a une liste de liste de déclarations, et une liste de signatures *)
+
+let locate_any id ml dll sl =
+  (* Trouve les cordonnées (i,j) de la variable id la plus proche. i représente
+la hauteur de contexte, j la distance du pointeur rbp *)
+  let rec aux id ml dll sl height = match sl with
+    |sign::stl ->
+      begin
+	match (locate_arg id sign) with
+	|Some n -> (height,n+3)
+	|None -> match dll with
+		 |dl::dtl ->begin match (locate_var id dl (List.hd ml)) with
+			     |Some(n) -> (height,(-1-n))
+			     |None -> aux id (List.tl ml) dtl stl (height+1) end
+		 |[] -> failwith "shouldn't happen right ?" end
+    |[] -> (* Top context *)
+      match dll with
+      |dl::dtl ->begin match (locate_var id dl (List.hd ml)) with
+		       |Some(n) -> (height,(-1-n))
+		       |None -> failwith ("id : "^id^" is unlocatable") end
+      |[] -> failwith "shouldn't happen right ?" in
+  aux id ml dll sl 0;;
+      
 (* TODO *)
 
 (*****************************************************************************)
