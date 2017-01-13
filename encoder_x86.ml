@@ -1,5 +1,6 @@
 open X86_64
 open Ast
+open Symbol_table
 
 (*****************************************************************************)
 (*                              VARIABLES GLOBALES                           *)
@@ -65,11 +66,61 @@ let encode_expr_null () =
 ;;
 
 (* TODO *)
-let encode_expr_access var_field =
+let rec encode_expr_access var_field =
 	void_instr ()
-;;
+(*
+	let asm = void_instr in
 
-let rec encode_expr_binop op expr_1 expr_2 =
+	match var_field with
+	| Acc_var (id) ->
+		(* Propriétés utiles de la variable à laquelle accéder *)
+		let nb_above_levels = 0 in
+		let is_in_out = false in
+		let is_param = false in
+		let offset = 0 in
+		let nb_params = 0 in
+
+		(* Calcul de l'adresse de référence dans %r15 *)
+		let asm = asm ++ movq (reg rbp) (reg r15) in
+		for i = 0 to nb_above_levels do
+			let asm = asm ++ (ind ~index:2 ~scale:addr_size r15) (reg r15)
+		done
+
+		(* Distinction des variables locales et des paramètres pour le
+		   calcul de la case mémoire à traiter, dont le contenu est mis
+		   dans le registre %rax *)
+		let asm = asm ++ match is_param with
+		| true -> (* TODO : scale = 1 selon calcul offset ! *)
+			movq (ind ~ofs:(2 * addr_size) ~index:offset r15) (reg rax)
+
+			(* Distinction des modes IN (copie) et IN_OUT (adresse) :
+			   Si IN_OUT, alors il faut charger la valeur à l'adresse
+			   contenue dans le registre %rax dans lui-même *)
+			begin match is_in_out with
+			| true ->
+				(* TODO *)
+			| false ->
+				(* TODO *)
+			end
+
+		| false ->
+			movq (ind ~index:offset r15) (reg rax)
+		in
+
+		asm
+
+	| Acc_field (expr, id) ->
+		(* L'évaluation de l'expression renvoit l'adresse de la première
+		   case mémoire de l'enregistrement *)
+		let asm = asm ++ encode_expression expr in
+
+		(* Accès au i-ème champ TODO *)
+		let offset = 0 in
+		(* TODO *)
+		asm
+*)
+
+and encode_expr_binop op expr_1 expr_2 =
 
 	(* Registres contenant les évaluations des deux expressions *)
 	let reg_expr_1 = (reg r15) in
@@ -198,8 +249,13 @@ and encode_expr_unop op expr =
 
 (* TODO *)
 and encode_expr_new id =
-	(* TODO : taille des enregistrements / alignement ? *)
-	void_instr ()
+	let size_of_id = 0 in
+
+	(* Appel de la fonction malloc de la bibliothèque standard pour allouer
+	   de la mémoire sur le tas dont on renvoit l'adresse de la première case *)
+	movq (imm size_of_id) (reg rdi) ++ (* convention de passage d'argument *)
+	call "malloc"
+	(* Par convention, la valeur de retour est déjà dans %rax *)
 
 (* TODO *)
 and encode_expr_call id expr_l =
@@ -289,8 +345,9 @@ let alloc_local_space id =
 
 (* A utiliser au début de chaque définition de fonction *)
 let enter_called_funct id =
-	(* Empile le pointeur de frame courant %rbp, puis le rend égal à %rsp *)
-	let text_push = pushq (reg rbp) in
+	(* Empile le pointeur de pile courant %rsp, et met l'adresse de pile
+	   courante das %rbp *)
+	let text_push = pushq (reg rsp) in
 	let text_movq = movq (reg rsp) (reg rbp) in
 
 	(* Alloue de l'espace pour les variables locales *)
@@ -352,7 +409,7 @@ let encode_instr_return opt_expr =
 
 let rec encode_instr_list instr_l =
 	(* Itération sur la liste des instructions à encoder *)
-	List.fold_left (fun text instr -> text ++ (encode_instruction instr.value))
+	List.fold_left (fun text instr -> text ++ (encode_instruction instr))
 		(void_instr ()) instr_l
 
 and encode_instr_block instr_l =
@@ -433,7 +490,9 @@ and encode_instr_while test_expr instr_l =
 
 	asm
 
-and encode_instruction instr =
+and encode_instruction (instr:instruction) =
+	let instr = instr.value in
+
 	match instr with
 	| Instr_set (var_field, expr) ->
 		encode_instr_set var_field expr
@@ -456,3 +515,120 @@ and encode_instruction instr =
 	| Instr_while (test_expr, instr_l) ->
 		encode_instr_while test_expr instr_l
 ;;
+
+(*****************************************************************************)
+(*                                 DECLARATIONS                              *)
+(*****************************************************************************)
+
+(* Type utilisé pour représenter une fonction/procédure à encoder en x86,
+   contenant les informations suivantes :
+   - un identifiant (ident) et un préfixe (ident)
+   - une table des symboles (sym_table)
+   - une liste d'instructions à effectuer (instr_list)
+*)
+type f_decl = ident * ident * sym_table * instr_list
+
+(* Liste de fonctions/procédures à encoder en x86 *)
+let function_to_encode_l = ref []
+
+let add_function_to_encode (f:f_decl) =
+	function_to_encode_l := f :: !function_to_encode_l
+;;
+
+(* Type du contexte utilisé lors de l'ajout des déclarations
+   Il permet de conserver certaines informations utiles pour ajouter
+   des symboles ou des déclarations à encoder :
+   - un préfixe d'identifiant de fonction/procédure (indent)
+   - le niveau de profondeur actuel (level)
+   - la taille de l'offset courant pour les variables locales (offset)
+   - la table des symboles actuelle (sym_table)
+*)
+type decl_context = {
+	prefix 		: ident;
+	level 		: level;
+	local_offset: offset;
+	symbols 	: sym_table
+}
+
+(*****************************************************************************)
+
+let encode_decl_type id context =
+	let type_size  = 0 in (* TODO *)
+	let new_symbol = (id, (Sym_type type_size)) in
+
+	{
+		prefix 		 = context.prefix;
+		level 		 = context.level;
+		local_offset = context.local_offset;
+		symbols 	 = add_symbol context.symbols new_symbol
+	}
+;;
+
+let encode_decl_access id id_type context =
+	(* TODO ? *)
+	context
+;;
+
+let encode_decl_record id fields_l context =
+	(* TODO ? *)
+	context
+;;
+
+(* TODO : expression inutile ici ? ou pas ? *)
+let encode_decl_vars id_l t opt_expr context =
+	let offset    = ref context.local_offset in
+	let type_size = 0 in (* TODO *)
+
+	(* Ajout de chaque variable comme nouveau symbole *)
+	let add_var_as_symbol symbols id =
+		let var_sym = (id, Sym_variable (Var_local, context.level,
+										 type_size, !offset)) in
+		offset := !offset + type_size; (* offset mis à jour *)
+
+		add_symbol symbols var_sym
+	in
+	let symbols = List.fold_left add_var_as_symbol
+								 context.symbols
+								 id_l in
+
+	{
+		prefix 		 = context.prefix;
+		level 		 = context.level;
+		local_offset = !offset;
+		symbols 	 = symbols
+	}
+;;
+
+let encode_decl_procedure id params decl_l instr_l context =
+	(* TODO *)
+	context
+;;
+
+let encode_decl_function id params t decl_l instr_l context =
+	(* TODO *)
+	context
+;;
+
+let encode_declaration (decl:declaration) context =
+	let decl = decl.value in
+
+	match decl with
+	| Decl_type (id) ->
+		encode_decl_type id context
+
+	| Decl_access (id, id_type) ->
+		encode_decl_access id id_type context
+
+	| Decl_record (id, fields_l) ->
+		encode_decl_record id fields_l context
+
+	| Decl_vars (id_l, t, opt_expr)  ->
+		encode_decl_vars id_l t opt_expr context
+
+	| Decl_procedure (id, params, decl_l, instr_l) ->
+		encode_decl_procedure id params decl_l instr_l context
+
+	| Decl_function (id, params, t, decl_l, instr_l) ->
+		encode_decl_function id params t decl_l instr_l context
+;;
+

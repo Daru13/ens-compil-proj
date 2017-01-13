@@ -13,7 +13,7 @@ LEXER_FLAGS  =
 LIBS = nums.cma
 
 # Fichiers objets (devant tous être liés)
-OBJS = ast.cmo lexer.cmo parser.cmo typer.cmo compiler.cmo x86_64.cmo encoder_x86.cmo
+OBJS = ast.cmo lexer.cmo parser.cmo typer.cmo compiler.cmo symbol_table.cmo x86_64.cmo encoder_x86.cmo 
 # OBJS = ast.cmo lexer.cmo parser.cmo compiler.cmo
 
 # Cibles factices
@@ -25,17 +25,20 @@ all: adac
 adac: $(OBJS)
 	$(CC) $(CC_FLAGS) $(LIBS) $(OBJS) -o adac
 
-encoder_x86.cmo: encoder_x86.ml x86_64.cmo ast.cmo typer.cmo
+compiler.cmo: compiler.ml parser.cmo lexer.cmo encoder_x86.cmo
+	$(CC) $(CC_FLAGS) parser.mli -c compiler.ml
+
+encoder_x86.cmo: encoder_x86.ml x86_64.cmo ast.cmo typer.cmo symbol_table.cmo
 	$(CC) $(CC_FLAGS) -c encoder_x86.ml
+
+symbol_table.cmo: symbol_table.ml
+	$(CC) $(CC_FLAGS) -c symbol_table.ml
 
 x86_64.cmo: x86_64.ml x86_64.cmi
 	$(CC) $(CC_FLAGS) -c x86_64.ml
 
 x86_64.cmi: x86_64.mli
 	$(CC) $(CC_FLAGS) -c x86_64.mli
-
-compiler.cmo: compiler.ml parser.cmo lexer.cmo
-	$(CC) $(CC_FLAGS) parser.mli -c compiler.ml
 
 typer.cmo: typer.ml ast.cmo
 	$(CC) $(CC_FLAGS) -c typer.ml
