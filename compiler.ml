@@ -76,10 +76,10 @@ let handle_exception e =
 	| Typer.Type_error(pos, msg) ->
 		print_error pos msg;
 		exit 1
-	| _ (* as e *) ->
-		(* raise e; *)
+	| e ->
+		raise e;(*
 		Printf.eprintf "Fatal error: uncatched exception.\n";
-		exit 2
+		exit 2*)
 ;;
 
 let compile () =	
@@ -101,7 +101,7 @@ let compile () =
 
 		(* Production de code *)
 		let output_file = (Filename.remove_extension !param_source_file) ^ ".s" in
-		Encoder_x86.encode_program abstract_syntax output_file;
+		Encoder_x86.encode_program abstract_syntax output_file (snd typed_program);
 
 		(* Fin de la compilation, sans erreur *)
 		close_in source_file;

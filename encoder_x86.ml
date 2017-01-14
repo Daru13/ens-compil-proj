@@ -1,7 +1,7 @@
 open X86_64
 open Ast
-open Symbol_table
 open Typer
+open Symbol_table
        
 (*****************************************************************************)
 (*                              VARIABLES GLOBALES                           *)
@@ -9,6 +9,7 @@ open Typer
 
 (* Taille d'une adresse/case mémoire (?) en octet *)
 let addr_size = 8
+let sep = "";;
 let int_size = 4 (* pour l'instant les fonctions sont robustes au changement de int_size *)
 (* Opérande (registre %rax) utilisée pour les évaluations d'expressions *)
 (* Note : si modifié, le code doit être mis à jour ! *)
@@ -67,7 +68,7 @@ let locate_arg arg ((l,t):signature) =
   (* Renvoie le nombre d'octets à remonter, depuis le premier argument rencontré,
      pour retrouver l'argument d'identifiant arg *)
   let rec aux l acc = match l with
-    |(i,t,b)::tl when i = arg -> Some(acc)
+    |(i,t,b)::tl when i = arg -> Some(acc,b)
     |(i,t,b)::tl -> aux l (acc - 1)
     |[] -> None in
   aux l (List.fold_left (fun s (id,t,b) -> s+(size_exp_type t)) 0 l);;
@@ -114,18 +115,18 @@ la hauteur de contexte, j la distance du pointeur rbp *)
     |sign::stl ->
       begin
 	match (locate_arg id sign) with
-	|Some n -> (height,n+3)
+	|Some (n,b) -> (height,n+3,b)
 	|None -> match dll with
 		 |dl::dtl ->begin match (locate_var id dl (List.hd ml)) with
-			     |Some(n) -> (height,(-1-n))
+			     |Some(n) -> (height,(-1-n),true)
 			     |None -> aux id (List.tl ml) dtl stl (height+1) end
-		 |[] -> failwith "shouldn't happen right ?" end
+		 |[] -> failwith "shouldn't happen right ? l123" end
     |[] -> (* Top context *)
       match dll with
       |dl::dtl ->begin match (locate_var id dl (List.hd ml)) with
-		       |Some(n) -> (height,(-1-n))
+		       |Some(n) -> (height,(-1-n),true)
 		       |None -> failwith ("id : "^id^" is unlocatable") end
-      |[] -> failwith "shouldn't happen right ?" in
+      |[] -> failwith "shouldn't happen right ? l129" in
   aux id ml dll sl 0;;
       
 (* TODO *)
@@ -771,7 +772,7 @@ and encode_declaration (decl:declaration) context =
 ;;
 
 (*****************************************************************************)
-
+(*
 let set_all_functions_to_encode (p_id, p_decl_l, p_instr_l) context_tree =
 	let symbols = get_empty_symbol_table () in
 	let root_prefix = "" in
@@ -885,22 +886,113 @@ let encode_all_functions =
 
 	List.fold_left encode_f (void_instr ()) !functions_to_encode_l
 ;;
+ *)
+  let encode_fun (id,prefix,instr_l,assign_asm) =
+  label (prefix ^ sep ^ id) ++
+    assign_asm ++
+    (List.fold_left (fun asm instr -> asm++(encode_instruction instr)) nop instr_l);;
+    
+  (* à une fonction associe son code *)
 
-let encode_text_segment main_id =
+let add_to_dll decl dll =
+  match dll with
+  |hd::tl -> (hd@[decl]) ::tl
+  |[] -> [[decl]];;
+  
+let get_local_alloc_asm decl_l map_l sign_l decl_l_l =
+  let size_ty t =
+    match t with
+    | Ty_access _ -> addr_size
+    | Ty_var id ->
+       match search id map_l with
+       | Some(Type (r), _) -> begin
+	  match !r with
+	  | None -> failwith "should not happen l910"
+	  | Some expr_t ->
+	     (size_exp_type expr_t) end
+       |_ -> failwith "should not happen l913"
+  in
+
+  let rec aux (decl_l:declaration list) asm decl_l_l offset =
+    let incr_asm size_t (asm, offset) id =
+      ((asm ++ movq expr_reg (ind ~ofs:offset rbp)), offset + size_t)
+    in
+
+    match decl_l with
+    | [] ->
+       asm
+    | head :: tail ->
+       match head.value with
+       | Decl_vars (id_l, t, None) ->
+	  let offset = offset + ((List.length id_l) * (size_ty t)) in
+	  aux tail asm (add_to_dll head decl_l_l) offset
+
+       | Decl_vars (id_l, t, Some(expr)) ->
+	  let size_t = size_ty t in
+	  let (asm_assign,new_offset) =
+	    List.fold_left (incr_asm size_t) (asm,offset) id_l in
+	  let asm = asm
+		    ++ encode_expression expr
+		    ++ asm_assign in
+	  aux tail asm (add_to_dll head decl_l_l) new_offset
+
+       | _ ->
+	  aux tail asm decl_l_l offset
+  in
+
+  aux decl_l nop ([]::decl_l_l) 0 ;;
+
+let run_through decl_l cont_tree map_l sign_l decl_l_l =
+  let rec aux (decl_l:declaration list) cont_tree map_l sign_l decl_l_l asmacc prefixacc =
+    match decl_l with
+    | [] -> asmacc
+    | hd::tl ->
+       match hd.value with
+       |Decl_procedure (id,_,decl_li,instr_l)
+       |Decl_function (id,_,_,decl_li,instr_l) ->
+	 let assign_asm = get_local_alloc_asm decl_li map_l sign_l decl_l_l in
+	 (* On se prépare à encoder f, et ses sous fonctions *)
+	 let f_to_encode = (id, prefixacc, instr_l, assign_asm) in
+	 let f_prefix = prefixacc ^ sep ^ id in
+	 let f_context = Tmap.find id (cont_tree.subtree) in
+	 let f_map_l = (f_context.node)::map_l in
+	 let f_sign_l = match search id map_l with
+	   |Some(dt,_) -> begin match dt with
+				|Val(Function(a,b)) -> (a,b)::sign_l
+				|_ -> failwith "should not happen l962"
+			  end
+	   |_ -> failwith "should not happen l964" in
+	 let next_asm = aux decl_li f_context f_map_l f_sign_l ([]::decl_l_l) asmacc f_prefix in
+
+	 aux tl cont_tree map_l sign_l decl_l_l ((encode_fun f_to_encode)::next_asm) prefixacc
+       |_ -> aux tl cont_tree map_l sign_l decl_l_l asmacc prefixacc 
+  in
+  aux decl_l cont_tree map_l sign_l decl_l_l [] "";;
+let encode_text_segment (id,dl,il) context_tree =
 	(* Débute par la définition de main *)
 	let asm = glabel "main"
 
 		   (* Appel à la procédure principale *)
-		   ++ call main_id
+		   ++ call id
 
 		   (* Terminaison propre du programme *)
 		   ++ movq (imm 0) (reg rax)
 		   ++ ret in
 
 	(* Puis encode toutes les procédures/fonctions *)
-	let encoded_functions = encode_all_functions context_tree in
-
-	asm ++ encoded_functions
+	let (maindecl:declaration) = {value = Decl_procedure(id,[],dl,il);
+				      pos = (Lexing.dummy_pos,Lexing.dummy_pos)} in
+	let upper_context_tree = {node = Tmap.singleton id (Val(Function([],Prim(Nulltype)))
+							   ,false);
+				  subtree = (Tmap.singleton id (context_tree))} in
+	let encoded_functions = run_through [maindecl]
+					    upper_context_tree [upper_context_tree.node;init_map]
+					    [] [] in
+	let () = match encoded_functions with
+	  |[] -> print_string "Vide";
+	  |_ -> print_string "Non vide"; in
+	
+	List.fold_left (fun x y -> x++y) asm encoded_functions
 ;;
 
 let encode_data_segment () =
@@ -909,13 +1001,13 @@ let encode_data_segment () =
 ;;
 
 let encode_program prog output_file context_tree =
-	let (p_id, _, _) = prog in
+	
 
 	(* Remplit la liste des fonctions à encoder *)
-	set_all_functions_to_encode prog context_tree;
+	
 
 	(* Génère l'assembleur des segments text et data *)
-	let asm_text = encode_text_segment p_id in
+	let asm_text = encode_text_segment prog context_tree in
 	let asm_data = encode_data_segment () in
 
 	let asm_prog = {
@@ -926,3 +1018,4 @@ let encode_program prog output_file context_tree =
 	(* Ecrit le code assembleur en sortie *)
 	print_in_file output_file asm_prog;
 ;;
+ 

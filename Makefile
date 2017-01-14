@@ -5,7 +5,7 @@
 
 # Drapeaux pour $(CC), menhir, ocamllex
 CC 			 = ocamlc
-CC_FLAGS 	 = 
+CC_FLAGS 	 = -g
 PARSER_FLAGS = --infer
 LEXER_FLAGS  =
 

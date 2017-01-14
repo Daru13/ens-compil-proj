@@ -477,10 +477,8 @@ and context_fun id params rtype ldec lins ml p=
   let mapl = handle_decl ldec (new_map params ml) (Tmap.empty) in
   match check_for_def (fst mapl) (List.hd lins) with
   |true -> (id,handle_inst lins (fst mapl) (snd mapl))
-  |false -> raise (Type_error (((List.hd lins).pos),"undefined type declared before an instruction"));; 
-let context_program ((id,decll,insl):program) =
-  (* Init_map est ainsi la map contenant les types définis de base dans le
-     langage. Ainsi, ils peuvent être shadowés par des déclarations nouvelles *)
+  |false -> raise (Type_error (((List.hd lins).pos),"undefined type declared before an instruction"));;
+let init_map = 
   let init_list = [("integer",(Type(ref(Some(Prim(Integer)))),true));
 		   ("boolean",(Type(ref(Some(Prim(Boolean)))),true));
 		   ("character",(Type(ref(Some(Prim(Character)))),true));
@@ -488,5 +486,9 @@ let context_program ((id,decll,insl):program) =
 		   ("put",(Val(Function([("c",Prim(Character),false)],Prim(Nulltype))),true));
 		   ("new_line",(Val(Function([],Prim(Nulltype))),true))
 		  ] in
-  let init_map = List.fold_left (fun m (k,v) -> Tmap.add k v m) (Tmap.empty) init_list in
+  List.fold_left (fun m (k,v) -> Tmap.add k v m) (Tmap.empty) init_list;;
+let context_program ((id,decll,insl):program) =
+  (* Init_map est ainsi la map contenant les types définis de base dans le
+     langage. Ainsi, ils peuvent être shadowés par des déclarations nouvelles *)
+  
   context_fun id [] (Prim(Nulltype)) decll insl [Tmap.empty;init_map] (Lexing.dummy_pos,Lexing.dummy_pos);;
