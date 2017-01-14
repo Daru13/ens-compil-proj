@@ -45,6 +45,12 @@ let op_map l f =
     |hd::tl -> aux tl (aux2 (f hd) acc) in
   List.rev (aux l []);;
 
+let add_to_dll decl dll =
+	match dll with
+	| hd :: tl -> (hd @ [decl]) :: tl
+	| [] -> [[decl]]
+;;
+
 (*****************************************************************************)
 (*                          ACCESS AUX VARIABLES/CHAMPS                      *)
 (*****************************************************************************)
@@ -615,7 +621,7 @@ and encode_instruction (instr:instruction) =
    - une table des symboles (sym_table)
    - une liste d'instructions à effectuer (instr_list)
 *)
-type f_decl = ident * ident * sym_table * instr_list
+type f_decl = ident * ident * sym_table * instr_list * text
 
 (* Liste de fonctions/procédures à encoder en x86 *)
 let functions_to_encode_l = ref []
@@ -766,12 +772,12 @@ and encode_declaration (decl:declaration) context =
 
 (*****************************************************************************)
 
-let set_all_functions_to_encode (p_id, p_decl_l, p_instr_l) =
+let set_all_functions_to_encode (p_id, p_decl_l, p_instr_l) context_tree =
 	let symbols = get_empty_symbol_table () in
 	let root_prefix = "" in
 
 	(* Procédure principale à encoder *)
-	let main_procedure_to_encode = (p_id, root_prefix, symbols, p_instr_l) in
+	let main_procedure_to_encode = (p_id, root_prefix, symbols, p_instr_l, nop) in
 	add_function_to_encode main_procedure_to_encode;
 
 	(* Parcours en largeur visitant l'ensemble des déclarations du
@@ -784,15 +790,61 @@ let set_all_functions_to_encode (p_id, p_decl_l, p_instr_l) =
 	List.iter (fun e -> Queue.add (root_prefix, e) decl_queue)
 			  p_decl_l;
 
+	let get_local_alloc_asm decl_l map_l sign_l decl_l_l =
+		let size_ty t =
+			match t with
+			| Ty_access _ -> addr_size
+			| Ty_var id ->
+				match search id map_l with
+				| Some(Type (r), _) ->
+					match !r with
+					| None -> failwith "should not happen"
+					| Some expr_t ->
+						size_exp_type expr_t
+		in 
+
+		let rec aux (decl_l:declaration list) asm decl_l_l offset =
+			let incr_asm size_t (asm, offset) id =
+				((asm ++ movq expr_reg (ind ~ofs:offset rbp)), offset + size_t)
+			in
+
+			match decl_l with
+			| [] ->
+				asm
+			| head :: tail ->
+				match head.value with
+				| Decl_vars (id_l, t, None) ->
+					let offset = offset + ((List.length id_l) * (size_ty t)) in
+					aux tail asm (add_to_dll head decl_l_l) offset
+
+				| Decl_vars (id_l, t, Some(expr)) ->
+					let size_t = size_ty t in
+					let (asm_assign,new_offset) = 
+					List.fold_left (incr_asm size_t) (asm,offset) id_l in
+					let asm = asm 
+						   ++ encode_expression expr
+						   ++ asm_assign in
+					aux tail asm (add_to_dll head decl_l_l) new_offset
+
+				| _ ->
+					aux tail asm decl_l_l offset
+			in
+
+		aux decl_l nop ([]::decl_l_l) 0
+	in
+
 	(* Ajout récursif de toutes les fonctions et procédures *)
-	let rec add_all_f_decl () =
+	let rec add_all_f_decl context_tree map_l sign_l decl_l_l =
 		try
 			let (prefix, (decl:declaration)) = Queue.pop decl_queue in
 			let decl = decl.value in 
 
 			match decl with
 			| Decl_procedure (id, _, decl_l, instr_l) ->
-				let f_to_encode = (id, prefix, symbols, instr_l) in
+				let assign_asm =
+					get_local_alloc_asm decl_l map_l sign_l decl_l_l in
+
+				let f_to_encode = (id, prefix, symbols, instr_l, assign_asm) in
 				add_function_to_encode f_to_encode;
 
 				let f_prefix = prefix ^ id in
@@ -801,7 +853,10 @@ let set_all_functions_to_encode (p_id, p_decl_l, p_instr_l) =
 				add_all_f_decl ()
 
 			| Decl_function (id, _, _, decl_l, instr_l) ->
-				let f_to_encode = (id, prefix, symbols, instr_l) in
+				let assign_asm =
+					get_local_alloc_asm decl_l map_l sign_l decl_l_l in
+
+				let f_to_encode = (id, prefix, symbols, instr_l, assign_asm) in
 				add_function_to_encode f_to_encode;
 
 				let f_prefix = prefix ^ id in
@@ -818,12 +873,13 @@ let set_all_functions_to_encode (p_id, p_decl_l, p_instr_l) =
 	add_all_f_decl ();
 ;;
 
-let encode_all_functions () =
-	let encode_f asm (id, prefix, symbols, instr_l) =
+let encode_all_functions =
+	let encode_f asm (id, prefix, symbols, instr_l, assign_asm) =
 		let f_label = prefix ^ id in (* TODO : remettre séparateur ! *)
 
 		asm ++
 		label f_label ++
+		assign_asm ++
 		encode_instr_list instr_l
 	in
 
@@ -842,7 +898,7 @@ let encode_text_segment main_id =
 		   ++ ret in
 
 	(* Puis encode toutes les procédures/fonctions *)
-	let encoded_functions = encode_all_functions () in
+	let encoded_functions = encode_all_functions context_tree in
 
 	asm ++ encoded_functions
 ;;
@@ -852,11 +908,11 @@ let encode_data_segment () =
 	label "NewLine" ++ (string "\n")
 ;;
 
-let encode_program prog output_file =
+let encode_program prog output_file context_tree =
 	let (p_id, _, _) = prog in
 
 	(* Remplit la liste des fonctions à encoder *)
-	set_all_functions_to_encode prog;
+	set_all_functions_to_encode prog context_tree;
 
 	(* Génère l'assembleur des segments text et data *)
 	let asm_text = encode_text_segment p_id in
