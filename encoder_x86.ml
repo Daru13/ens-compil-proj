@@ -24,7 +24,7 @@ let label_unique_id = ref 0
 (* Fonction temporaire, utile pour débug en renvoyant un type text
    représentant une instruction inutile, pour les parties de la production
    de code non-encore écrites *)
-let void_instr () = movq (reg rax) (reg rax)
+let void_instr () = (* movq (reg rax) (reg rax) *) nop
 
 (* Création d'étiquette unique dont le préfixe est spécifié, et renvoyé
    suivi de label_unique_id, qui est incrémenté *)
@@ -129,12 +129,12 @@ la hauteur de contexte, j la distance du pointeur rbp *)
 (*****************************************************************************)
 
 let encode_expr_int n =
-	movslq (imm n) rax
+	movq (imm n) (reg rax)
 ;;
 
 let encode_expr_char c =
 	let char_int = int_of_char c in
-	movslq (imm char_int) rax
+	movq (imm char_int) (reg rax)
 ;;
 
 let encode_expr_bool b =
@@ -142,11 +142,11 @@ let encode_expr_bool b =
 	| true  -> 1
 	| false -> 0
 	in
-	movslq (imm bool_int) rax
+	movq (imm bool_int) (reg rax)
 ;;
 
 let encode_expr_null () =
-	movslq (imm 0) rax
+	movq (imm 0) (reg rax)
 ;;
 
 (* TODO *)
@@ -390,60 +390,49 @@ and encode_expression (expr: expression) =
 (*                             FONCTIONS/PROCEDURES                          *)
 (*****************************************************************************)
 
-(* TODO *)
 (* A utiliser avant chaque appel de fonction, dans l'appelant *)
-let save_context () = 
+let save_registers () = 
 	void_instr ()
 ;;
 
-(* TODO *)
 (* A utiliser après chaque appel de fonction, dans l'appelé *)
-let load_context () =
+let load_registers () =
 	void_instr ()
 ;;
 
-(* TODO *)
 (* Evalue et empile les expressions de la liste fournie *)
 let push_arguments expr_l = 
-	let rec push_arg text l =
-		match l with
-		| [] ->
-			text
-		| expr :: tail ->
-			let text_expr = encode_expression expr in
-			let new_text  = text
-						 ++ text_expr
-						 ++ (pushq expr_reg) in
-			push_arg new_text tail;
+	let push_arg asm expr =
+		asm ++
+		encode_expression expr ++
+		pushq expr_reg
 	in
 
-	(* TODO : init text ? *)
-	push_arg (void_instr ()) expr_l
+	List.fold_left push_arg (void_instr ()) expr_l
 ;;
 
-(* TODO *)
 (* Réserve l'espace nécessaire pour les variables locales d'une fonction *)
 let alloc_local_space id =
-	void_instr ()
+	let local_space_size = 0 in (* TODO *)
+	subq (imm local_space_size) (reg rsp)
 ;;
 
 (* A utiliser au début de chaque définition de fonction *)
 let enter_called_funct id =
 	(* Empile le pointeur de pile courant %rsp, et met l'adresse de pile
 	   courante das %rbp *)
-	let text_push = pushq (reg rsp) in
-	let text_movq = movq (reg rsp) (reg rbp) in
+	let asm = pushq (reg rsp)
+		   ++ movq (reg rsp) (reg rbp) in
 
-	(* Alloue de l'espace pour les variables locales *)
-	let text_alloc = alloc_local_space id in
+	(* Alloue de l'espace pour les variables locales (+ variables de boucles) *)
+	let asm = asm ++ alloc_local_space id in
 
-	text_push ++ text_movq ++ text_alloc
+	asm
 ;;
 
 (* A utiliser à la fin de chaque définition de fonction *)
 let leave_called_funct id =
 	(* Libère l'espace de pile utilisé et saute vers l'appelant *)
-	(* TODO : vérifier libération mémoire arguments, via argu ret ? *)
 	leave ++ ret
 ;;
 
@@ -460,24 +449,40 @@ let encode_instr_set var_field expr =
 ;;
 
 let encode_instr_call id expr_l =
-	(* TODO: cas particuliers des opérations de lecture/écriture ! *)
+	(* Sauvegarde du contexte *)
+	let asm = save_registers () in
 
-	let text_save = save_context () in
+	(* Gestion des fonctions préféfinies *)
+	let asm = asm ++ match id with
+	| "put" ->
+		(* Evaluation de l'entier à afficher, déplacement dans %rdi,
+		   et appel de la putchar() *)
+		encode_expression (List.hd expr_l) ++
+		movq expr_reg (reg rdi) ++
+		call "putchar"
 
-	(* Evalue puis empile chaque instruction formant un paramètre *)
-	let text_args = push_arguments expr_l in
+	| "new_line" ->
+		(* Appel de printf() avec l'adresse d'une chaîne globale contenant
+		   un simple saut de ligne *)
+		movq (ilab "NewLine") (reg rdi) ++
+		movq (imm 0) (reg rax) ++
+		call "printf"
 
-	(* Empile le pointeur de frame courant %rbp *)
-	let text_push = pushq (reg rbp) in
+	| _ ->
+		(* TODO : déterminer préfixe *)
+		let function_label = "" ^ id in
 
-	(* Empile l'adresse de retour (instruction suivante) et saute *)
-	(* TODO : trouver le bon identifiant en cas de déf récursives ! *)
-	let text_call = call id in
+		asm ++
+		(* Evalue puis empile chaque instruction formant un paramètre *)
+		push_arguments expr_l ++
+		(* Empile l'adresse de retour (instruction suivante) et saute *)
+		call function_label
+	in
 
-	(* Libération de la pile effectuée par l'appelant avec leave ? TODO *)
-	let text_load = load_context () in
+	(* Restauration du contexte sauvegardé *)
+	let asm = asm ++ load_registers () in
 
-	text_save ++ text_push ++ text_call ++ text_load
+	asm
 ;;
 
 let encode_instr_return opt_expr =
@@ -613,10 +618,10 @@ and encode_instruction (instr:instruction) =
 type f_decl = ident * ident * sym_table * instr_list
 
 (* Liste de fonctions/procédures à encoder en x86 *)
-let function_to_encode_l = ref []
+let functions_to_encode_l = ref []
 
 let add_function_to_encode (f:f_decl) =
-	function_to_encode_l := f :: !function_to_encode_l
+	functions_to_encode_l := f :: !functions_to_encode_l
 ;;
 
 (* Type du contexte utilisé lors de l'ajout des déclarations
@@ -683,17 +688,60 @@ let encode_decl_vars id_l t opt_expr context =
 	}
 ;;
 
-let encode_decl_procedure id params decl_l instr_l context =
+(* Renvoit une liste d'identifiants utilisés par des boucles for *)
+(*
+let find_for_loops_variables instr_l =
+	let is_for_instr instr =
+		match instr with
+		| Instr_for _ -> true
+		| _ 		  -> false
+	in
+	let get_for_var (id, _, _, _, _) =
+		id
+	in
+	
+	let for_instr_l = List.find_all is_for_instr instr_l in
+	List.map get_for_var for_instr_l
+;;
+*)
+
+let rec encode_decl_procedure id params decl_l instr_l context =
+(*	(* La table des symboles utilisée par la procédure doit (en plus)
+	   contenir ses paramètres, suivis de ses variables locales, et
+	   enfin de ses variables de boucle *)
+	let proc_decl_symbols = context.symbols in
+
+	(* Paramètres *)
+	let add_param_as_sym (id_l, mode_opt, ) symbols =
+
+	let proc_decl_symbols = List.fold_left
+
+
+	(* On met également à jour le préfixe et le niveau *)
+	let proc_decl_level  = context.level + 1 in
+	let proc_decl_prefix = id ^ context.prefix in
+
+	(* La procédure est ajoutée à la liste des déclarations à encoder *)
+	let proc_decl = (id, context.prefix, proc_decl_symbols, instr_l) in
+	add_function_to_encode proc_decl;
+
+	(* Enfin, la procédure est ajoutée au contexte renvoyé *)
+	let symbols = add_symbol context.symbols 
+	{
+		prefix 		 = context.prefix;
+		level 		 = context.level;
+		local_offset = !offset;
+		symbols 	 = symbols
+	}
+*)
 	(* TODO *)
 	context
-;;
 
-let encode_decl_function id params t decl_l instr_l context =
+and encode_decl_function id params t decl_l instr_l context =
 	(* TODO *)
 	context
-;;
 
-let encode_declaration (decl:declaration) context =
+and encode_declaration (decl:declaration) context =
 	let decl = decl.value in
 
 	match decl with
@@ -716,3 +764,109 @@ let encode_declaration (decl:declaration) context =
 		encode_decl_function id params t decl_l instr_l context
 ;;
 
+(*****************************************************************************)
+
+let set_all_functions_to_encode (p_id, p_decl_l, p_instr_l) =
+	let symbols = get_empty_symbol_table () in
+	let root_prefix = "" in
+
+	(* Procédure principale à encoder *)
+	let main_procedure_to_encode = (p_id, root_prefix, symbols, p_instr_l) in
+	add_function_to_encode main_procedure_to_encode;
+
+	(* Parcours en largeur visitant l'ensemble des déclarations du
+	   programme, et mémorisant toutes les fonctions et procédures qu'il
+	   faut encoder, cf. functions_to_encode_l *)
+
+	(* Initialisation de la FIFO *)
+	let decl_queue = Queue.create () in
+	
+	List.iter (fun e -> Queue.add (root_prefix, e) decl_queue)
+			  p_decl_l;
+
+	(* Ajout récursif de toutes les fonctions et procédures *)
+	let rec add_all_f_decl () =
+		try
+			let (prefix, (decl:declaration)) = Queue.pop decl_queue in
+			let decl = decl.value in 
+
+			match decl with
+			| Decl_procedure (id, _, decl_l, instr_l) ->
+				let f_to_encode = (id, prefix, symbols, instr_l) in
+				add_function_to_encode f_to_encode;
+
+				let f_prefix = prefix ^ id in
+				List.iter (fun e -> Queue.add (f_prefix, e) decl_queue)
+			  			   decl_l;
+				add_all_f_decl ()
+
+			| Decl_function (id, _, _, decl_l, instr_l) ->
+				let f_to_encode = (id, prefix, symbols, instr_l) in
+				add_function_to_encode f_to_encode;
+
+				let f_prefix = prefix ^ id in
+				List.iter (fun e -> Queue.add (f_prefix, e) decl_queue)
+						   decl_l;
+				add_all_f_decl ()
+
+			| _ ->
+				add_all_f_decl ()
+		with
+		| Queue.Empty -> ()
+	in
+
+	add_all_f_decl ();
+;;
+
+let encode_all_functions () =
+	let encode_f asm (id, prefix, symbols, instr_l) =
+		let f_label = prefix ^ id in (* TODO : remettre séparateur ! *)
+
+		asm ++
+		label f_label ++
+		encode_instr_list instr_l
+	in
+
+	List.fold_left encode_f (void_instr ()) !functions_to_encode_l
+;;
+
+let encode_text_segment main_id =
+	(* Débute par la définition de main *)
+	let asm = glabel "main"
+
+		   (* Appel à la procédure principale *)
+		   ++ call main_id
+
+		   (* Terminaison propre du programme *)
+		   ++ movq (imm 0) (reg rax)
+		   ++ ret in
+
+	(* Puis encode toutes les procédures/fonctions *)
+	let encoded_functions = encode_all_functions () in
+
+	asm ++ encoded_functions
+;;
+
+let encode_data_segment () =
+	(* Chaîne contenant un saut de ligne pour la procédure new_line *)
+	label "NewLine" ++ (string "\n")
+;;
+
+let encode_program prog output_file =
+	let (p_id, _, _) = prog in
+
+	(* Fill the list of functions to encode *)
+	set_all_functions_to_encode prog;
+
+	(* Get them all encoded in x86 *)
+	let asm_text = encode_text_segment p_id in
+	let asm_data = encode_data_segment () in
+
+	let asm_prog = {
+		text = asm_text;
+		data = asm_data
+	} in
+
+	(* Write an assembly file *)
+	print_in_file output_file asm_prog;
+;;

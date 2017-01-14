@@ -99,7 +99,9 @@ let compile () =
 		let typed_program = Typer.context_program abstract_syntax in
 		if !param_type_only then begin close_in source_file; exit 0 end;
 
-		(* Production de code : à venir ! *)
+		(* Production de code *)
+		let output_file = (Filename.remove_extension !param_source_file) ^ ".s" in
+		Encoder_x86.encode_program abstract_syntax output_file;
 
 		(* Fin de la compilation, sans erreur *)
 		close_in source_file;

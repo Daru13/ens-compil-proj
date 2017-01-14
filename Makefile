@@ -13,7 +13,7 @@ LEXER_FLAGS  =
 LIBS = nums.cma
 
 # Fichiers objets (devant tous être liés)
-OBJS = ast.cmo lexer.cmo parser.cmo typer.cmo compiler.cmo symbol_table.cmo x86_64.cmo encoder_x86.cmo 
+OBJS = ast.cmo lexer.cmo parser.cmo typer.cmo x86_64.cmo symbol_table.cmo encoder_x86.cmo compiler.cmo 
 # OBJS = ast.cmo lexer.cmo parser.cmo compiler.cmo
 
 # Cibles factices
@@ -25,7 +25,7 @@ all: adac
 adac: $(OBJS)
 	$(CC) $(CC_FLAGS) $(LIBS) $(OBJS) -o adac
 
-compiler.cmo: compiler.ml parser.cmo lexer.cmo encoder_x86.cmo
+compiler.cmo: compiler.ml parser.cmo lexer.cmo typer.cmo encoder_x86.cmo
 	$(CC) $(CC_FLAGS) parser.mli -c compiler.ml
 
 encoder_x86.cmo: encoder_x86.ml x86_64.cmo ast.cmo typer.cmo symbol_table.cmo

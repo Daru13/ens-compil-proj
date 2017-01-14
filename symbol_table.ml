@@ -19,7 +19,7 @@ type var_type =
 type symbol_type =
 | Sym_variable of var_type * level * size (* ? *) * offset (* décalage *)
 | Sym_type of size (* taille du type *)
-| Sym_function of size (* espace occupé par les arguments *)
+| Sym_function of size (* arguments *) * size (* var. locales *)
 
 (* Symbole de la table *)
 type symbol = ident * symbol_type
@@ -29,7 +29,7 @@ type sym_table = symbol list
 
 (*****************************************************************************)
 
-let get_empty_symbol_table =
+let get_empty_symbol_table () =
 	[]
 ;;
 
