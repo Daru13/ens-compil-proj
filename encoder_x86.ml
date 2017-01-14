@@ -855,10 +855,10 @@ let encode_data_segment () =
 let encode_program prog output_file =
 	let (p_id, _, _) = prog in
 
-	(* Fill the list of functions to encode *)
+	(* Remplit la liste des fonctions à encoder *)
 	set_all_functions_to_encode prog;
 
-	(* Get them all encoded in x86 *)
+	(* Génère l'assembleur des segments text et data *)
 	let asm_text = encode_text_segment p_id in
 	let asm_data = encode_data_segment () in
 
@@ -867,6 +867,6 @@ let encode_program prog output_file =
 		data = asm_data
 	} in
 
-	(* Write an assembly file *)
+	(* Ecrit le code assembleur en sortie *)
 	print_in_file output_file asm_prog;
 ;;
