@@ -197,9 +197,7 @@ let rec encode_expr_access var_field (ml,sl,dll) caller_lab =
 	   |Some(Val(Function([],t)),b) -> encode_expr_call id [] (ml,sl,dll) caller_lab
 	   |_ ->
 		(* Propriétés utiles de la variable à laquelle on veut accéder *)
-	     let nb_above_levels = 0 in (* TODO *)
-	     let is_param_in_out = false in (* TODO *)
-	     let offset = 0 in (* TODO *)
+	     let (nb_above_levels,offset,is_param_in_out) = locate_any id ml dll sl in
 	     
 	     (* Calcul de l'adresse de référence dans %r15 *)
 	     let asm = comment ("\tVar access to " ^ id)
