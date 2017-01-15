@@ -485,8 +485,7 @@ let enter_called_funct id =
 		   ++ pushq (reg rsp)
 		   ++ movq (reg rsp) (reg rbp) in
 
-	(* Alloue de l'espace pour les variables locales (+ variables de boucles) *)
-	asm ++ alloc_local_space id
+	asm
 ;;
 
 (* A utiliser à la fin de chaque définition de fonction *)
