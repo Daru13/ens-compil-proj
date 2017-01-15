@@ -9,7 +9,10 @@ open Symbol_table
 
 (* Taille d'une adresse/case mémoire (?) en octet *)
 let addr_size = 8
-let sep = "";;
+
+(* Séparateur utilisé dans les labels de fonctions *)
+let sep = 'I'
+
 let int_size = 4 (* pour l'instant les fonctions sont robustes au changement de int_size *)
 (* Opérande (registre %rax) utilisée pour les évaluations d'expressions *)
 (* Note : si modifié, le code doit être mis à jour ! *)
@@ -21,12 +24,34 @@ let label_unique_id = ref 0
 (*****************************************************************************)
 (*                                  UTILITAIRES                              *)
 (*****************************************************************************)
+(* Exponnentiation d'asm *)
 
+let repeat asm n =
+  let rec aux asm n acc = match n with
+    |0 -> acc
+    |_ -> aux asm (n-1) (asm++acc) in
+  aux asm n nop;;
+  
 (* Fonction temporaire, utile pour débug en renvoyant un type text
    représentant une instruction inutile, pour les parties de la production
    de code non-encore écrites *)
 let void_instr () = (* movq (reg rax) (reg rax) *) nop
 
+
+(* search qui renvoie le label de la fonction cherchée *)
+
+let defix label = String.sub label 0 (String.rindex label sep);;
+
+let rec get_fun_lab id caller_lab map_l = match map_l with
+  |[] -> raise Not_found
+  |hd::tl -> try (
+	       match Tmap.find id hd with
+	       |Val(Function(_,_)),_ -> caller_lab ^ (Char.escaped sep) ^ id
+	       |_ -> failwith "typing shouldn't have been ok") with
+	     |Not_found -> get_fun_lab id (defix caller_lab) tl
+;;
+  
+  
 (* Création d'étiquette unique dont le préfixe est spécifié, et renvoyé
    suivi de label_unique_id, qui est incrémenté *)
 let get_unique_label prefix =
@@ -63,13 +88,21 @@ let rec size_exp_type et = match et with (* Donne la taille d'un élément de ty
   |Access _ -> addr_size
   |Record l -> List.fold_left (fun s (id,t) -> s+(size_exp_type t)) 0 l
   |Function _ -> failwith "size of fun...l58";;
-  
+(*
+let locate_field expr id map_l =
+  let rec locate_field_in_list l id map_l = match l with
+    |[] -> raise Not_found
+    |(i,et)::tl when i = id -> 0
+    |(i,et)::tl -> (size_exp_type et)+(locate_field_in_list tl id map_l)
+  match type_expr expr map_l with
+  |Record l -> 
+ *)
 let locate_arg arg ((l,t):signature) =
   (* Renvoie le nombre d'octets à remonter, depuis le premier argument rencontré,
      pour retrouver l'argument d'identifiant arg *)
   let rec aux l acc = match l with
     |(i,t,b)::tl when i = arg -> Some(acc,b)
-    |(i,t,b)::tl -> aux l (acc - 1)
+    |(i,t,b)::tl -> aux tl (acc - 1)
     |[] -> None in
   aux l (List.fold_left (fun s (id,t,b) -> s+(size_exp_type t)) 0 l);;
 
@@ -86,10 +119,10 @@ let locate_var id (dl:declaration list) ml =
     quoi que ce soit *)
     |Decl_vars (idl,ty,eo) ->
       match ty with
-      |Ty_access _ -> List.map (fun id -> (id,8)) idl
+      |Ty_access _ -> List.map (fun id -> (id,addr_size)) idl
       |Ty_var id ->
 	match search id ml with
-	|Some(Type r) -> begin match !r with
+	|Some(Type r,_) -> begin match !r with
 			 |None -> failwith "typing went bad"
 			 |Some(et) -> let size = size_exp_type et in
 				      List.map (fun id -> (id,size)) idl end
@@ -117,13 +150,13 @@ la hauteur de contexte, j la distance du pointeur rbp *)
 	match (locate_arg id sign) with
 	|Some (n,b) -> (height,n+3,b)
 	|None -> match dll with
-		 |dl::dtl ->begin match (locate_var id dl (List.hd ml)) with
+		 |dl::dtl ->begin match (locate_var id dl ml) with
 			     |Some(n) -> (height,(-1-n),true)
-			     |None -> aux id (List.tl ml) dtl stl (height+1) end
+			     |None -> aux id ml dtl stl (height+1) end
 		 |[] -> failwith "shouldn't happen right ? l123" end
     |[] -> (* Top context *)
       match dll with
-      |dl::dtl ->begin match (locate_var id dl (List.hd ml)) with
+      |dl::dtl ->begin match (locate_var id dl ml) with
 		       |Some(n) -> (height,(-1-n),true)
 		       |None -> failwith ("id : "^id^" is unlocatable") end
       |[] -> failwith "shouldn't happen right ? l129" in
@@ -158,69 +191,47 @@ let encode_expr_null () =
 
 (* TODO *)
 let rec encode_expr_access var_field =
-	void_instr ()
-(*
-	let asm = void_instr in
-
 	match var_field with
 	| Acc_var (id) ->
-		(* Propriétés utiles de la variable à laquelle accéder *)
+		(* Propriétés utiles de la variable à laquelle on veut accéder *)
 		let nb_above_levels = 0 in
-		let is_in_out = false in
-		let is_param = false in
+		let is_param_in_out = false in
 		let offset = 0 in
-		let nb_params = 0 in
 
 		(* Calcul de l'adresse de référence dans %r15 *)
-		let asm = asm ++ movq (reg rbp) (reg r15) in
-		for i = 0 to nb_above_levels do
-			let asm = asm ++ (ind ~index:2 ~scale:addr_size r15) (reg r15)
-		done
+		let asm = movq (reg rbp) (reg r15) ++
+		repeat (movq (ind ~ofs: (2 * addr_size) r15) (reg r15))
+			   nb_above_levels in
 
-		(* Distinction des variables locales et des paramètres pour le
-		   calcul de la case mémoire à traiter, dont le contenu est mis
-		   dans le registre %rax *)
-		let asm = asm ++ match is_param with
-		| true -> (* TODO : scale = 1 selon calcul offset ! *)
-			movq (ind ~ofs:(2 * addr_size) ~index:offset r15) (reg rax)
+		(* S'il s'agit d'une variable locale ou d'un paramètre IN,
+		   il suffit de récupérer le contenu de la case mémoire placée en
+		   %r15 + offset.
 
-			(* Distinction des modes IN (copie) et IN_OUT (adresse) :
-			   Si IN_OUT, alors il faut charger la valeur à l'adresse
-			   contenue dans le registre %rax dans lui-même *)
-			begin match is_in_out with
-			| true ->
-				(* TODO *)
-			| false ->
-				(* TODO *)
-			end
-
-		| false ->
-			movq (ind ~index:offset r15) (reg rax)
-		in
-
-		asm
+		   S'il s'agit d'un paramètre IN_OUT, alors c'est la valeur de
+		   la case mémoire pointée par celle en %r15 + offset
+		   qu'il faut renvoyer*)
+		asm ++ begin match is_param_in_out with
+		| true ->
+			movq (ind ~ofs: offset r15) (reg rax) ++
+			movq (ind rax) (reg rax)
+		| false -> 
+			movq (ind ~ofs: offset r15) (reg rax)
+		end
 
 	| Acc_field (expr, id) ->
-		(* L'évaluation de l'expression renvoit l'adresse de la première
-		   case mémoire de l'enregistrement *)
-		let asm = asm ++ encode_expression expr in
+		(* Non supporté à l'heure actuelle... *)
+		nop
 
-		(* Accès au i-ème champ TODO *)
-		let offset = 0 in
-		(* TODO *)
-		asm
-*)
-
-and encode_expr_binop op expr_1 expr_2 =
+and encode_expr_binop op expr_1 expr_2 (ml,sl,dll) caller_lab =
 
 	(* Registres contenant les évaluations des deux expressions *)
 	let reg_expr_1 = (reg r15) in
 	let reg_expr_2 = (reg rax) in
 
 	(* Différentes évaluations des expressions, utilisées plus tard *)
-	let asm_eval_expr = encode_expression expr_1
+	let asm_eval_expr = encode_expression expr_1 (ml,sl,dll) caller_lab
 					 ++ movq expr_reg reg_expr_1
-					 ++ encode_expression expr_2 in
+					 ++ encode_expression expr_2 (ml,sl,dll) caller_lab in
 
 	(* La ou les instructions à effectuer dépendent de l'opérateur binaire
 	   Les booléens sur 8 bits sont systématiquement étendus sur 64 bits *)
@@ -288,13 +299,13 @@ and encode_expr_binop op expr_1 expr_2 =
 		movsbq (reg r15b) rax
 
 	| BinOp_andThen ->
-		let and_label_false = get_unique_label "and_false_" in
-		let and_label_end = get_unique_label "and_end_" in
+		let and_label_false = get_unique_label "And_false_" in
+		let and_label_end = get_unique_label "And_end_" in
 
-		encode_expression expr_1 ++
+		encode_expression expr_1 (ml,sl,dll) caller_lab ++
 		testq reg_expr_1 reg_expr_1 ++
 		je and_label_false ++
-		encode_expression expr_2 ++
+		encode_expression expr_2 (ml,sl,dll) caller_lab++
 		testq reg_expr_2 reg_expr_2 ++
 		je and_label_false ++
 		movq (imm 1) (reg rax) ++
@@ -310,13 +321,13 @@ and encode_expr_binop op expr_1 expr_2 =
 		movsbq (reg r15b) rax
 
 	| BinOp_orElse ->
-		let or_label_false = get_unique_label "or_false_" in
-		let or_label_end = get_unique_label "or_end_" in
+		let or_label_false = get_unique_label "Or_false_" in
+		let or_label_end = get_unique_label "Or_end_" in
 
-		encode_expression expr_1 ++
+		encode_expression expr_1 (ml,sl,dll) caller_lab ++
 		testq reg_expr_1 reg_expr_1 ++
 		je or_label_false ++
-		encode_expression expr_2 ++
+		encode_expression expr_2 (ml,sl,dll) caller_lab ++
 		testq reg_expr_2 reg_expr_2 ++
 		je or_label_false ++
 		movq (imm 1) (reg rax) ++
@@ -325,24 +336,23 @@ and encode_expr_binop op expr_1 expr_2 =
 		movq (imm 0) (reg rax) ++
 		label or_label_end
 
-and encode_expr_unop op expr =
+and encode_expr_unop op expr (ml,sl,dll) caller_lab=
 	(* La ou les instructions à effectuer dépendent de l'opérateur unaire *)
 	match op with
 	| UnOp_not ->
-		encode_expression expr ++
-		movq (imm 0) (reg r14) ++ (* TODO : optimiser ? *)
+		encode_expression expr (ml,sl,dll) caller_lab ++
+		movq (imm 0) (reg r14) ++
 		movq (imm 1) (reg r15) ++
 		cmpq (reg rax) (reg rax) ++
 		cmovne (reg r14) (reg rax) ++
 		cmove  (reg r15) (reg rax)
 
 	| UnOp_negative ->
-		encode_expression expr ++
+		encode_expression expr (ml,sl,dll) caller_lab++
 		negq (reg rax)
 
-(* TODO *)
 and encode_expr_new id =
-	let size_of_id = 0 in
+	let size_of_id = addr_size in (* TODO : mémoire à alloure, en octets *)
 
 	(* Appel de la fonction malloc de la bibliothèque standard pour allouer
 	   de la mémoire sur le tas dont on renvoit l'adresse de la première case *)
@@ -350,17 +360,35 @@ and encode_expr_new id =
 	call "malloc"
 	(* Par convention, la valeur de retour est déjà dans %rax *)
 
-(* TODO *)
-and encode_expr_call id expr_l =
-	void_instr ()
+and encode_expr_call id expr_l (ml,sl,dll) caller_lab =
+	let asm = save_registers () in
+	let function_label = get_fun_lab id caller_lab ml in
+	
+	let asm = asm ++
+		(* Evalue puis empile chaque instruction formant un paramètre *)
+		(push_arguments expr_l (ml,sl,dll) caller_lab) ++
+		(* Empile le pointeur de frame courant *)
+		pushq (reg rbp) ++
+		(* Empile l'adresse de retour (instruction suivante) et saute *)
+		call function_label ++
+		(* Dépile le pointeur de frame empilé avant l'appel *)
+		popq r15
+		
+		(* TODO : dépiler les arguments mis sur la place *)
+	in
 
-and encode_expr_ascii expr =
+	(* Restauration du contexte sauvegardé *)
+	let asm = asm ++ load_registers () in
+
+	asm
+
+and encode_expr_ascii expr (ml,sl,dll) caller_lab =
 	(* Seul l'octet de poids faible est retenu lors d'une transformation
-	   en caractère ASCII (0-255) *)
-	encode_expression expr ++ movsbq (reg al) rax
+		 en caractère ASCII (0-255) *)
+	encode_expression expr (ml,sl,dll) caller_lab ++ movsbq (reg al) rax
 
 (* TODO : problème avec champs d'enregistrements portant le même nom ? *)
-and encode_expression (expr: expression) =
+and encode_expression (expr: expression) (ml,sl,dll) caller_lab =
 	let expr = expr.value in 
 
 	match expr with
@@ -380,44 +408,43 @@ and encode_expression (expr: expression) =
 		encode_expr_access var_field
 
 	| Expr_binop (expr_1, op, expr_2) ->
-		encode_expr_binop op expr_1 expr_2
+		encode_expr_binop op expr_1 expr_2 (ml,sl,dll) caller_lab
 
 	| Expr_unop (op, expr) ->
-		encode_expr_unop op expr
+		encode_expr_unop op expr (ml,sl,dll) caller_lab
 
 	| Expr_new (id) ->
 		encode_expr_new id
 
 	| Expr_call (id, expr_l) ->
-		encode_expr_call id expr_l
+		encode_expr_call id expr_l (ml,sl,dll) caller_lab
 
 	| Expr_ascii (expr) ->
-		encode_expr_ascii expr
-;;
+	   encode_expr_ascii expr (ml,sl,dll) caller_lab
+
 
 (*****************************************************************************)
 (*                             FONCTIONS/PROCEDURES                          *)
 (*****************************************************************************)
 
-(* A utiliser avant chaque appel de fonction, dans l'appelant *)
-let save_registers () = 
-	void_instr ()
-;;
-
-(* A utiliser après chaque appel de fonction, dans l'appelé *)
-let load_registers () =
-	void_instr ()
-;;
-
 (* Evalue et empile les expressions de la liste fournie *)
-let push_arguments expr_l = 
+and push_arguments expr_l (ml,sl,dll) caller_lab = 
 	let push_arg asm expr =
 		asm ++
-		encode_expression expr ++
+		encode_expression expr (ml,sl,dll) caller_lab ++
 		pushq expr_reg
 	in
 
 	List.fold_left push_arg (void_instr ()) expr_l
+
+(* A utiliser avant chaque appel de fonction, dans l'appelant *)
+and save_registers () = 
+	void_instr ()
+
+
+(* A utiliser après chaque appel de fonction, dans l'appelé *)
+and load_registers () =
+	void_instr ()
 ;;
 
 (* Réserve l'espace nécessaire pour les variables locales d'une fonction *)
@@ -440,24 +467,41 @@ let enter_called_funct id =
 ;;
 
 (* A utiliser à la fin de chaque définition de fonction *)
-let leave_called_funct id =
+let leave_called_funct =
 	(* Libère l'espace de pile utilisé et saute vers l'appelant *)
-	leave ++ ret
+	movq (reg rbp) (reg rsp) ++ popq r15 ++ ret
 ;;
 
 (*****************************************************************************)
 (*                                 INSTRUCTIONS                              *)
 (*****************************************************************************)
+let encode_instr_set var_field expr (ml,sl,dll) caller_lab =
+  match var_field with
+  | Acc_field (e,id) -> nop
+	  (* let asm = encode_expression e (ml,sl,dll) caller_lab in
+			     
+		 let text_expr = encode_expression expr in
+		 let text_set  = movq expr_reg (ind ~ofs:addr ~scale:addr_size rbp) in
 
-let encode_instr_set var_field expr =
-	let addr 	  = 0 (* TODO *) in
-	let text_expr = encode_expression expr in
-	let text_set  = movq expr_reg (ind ~ofs:addr ~scale:addr_size rbp) in
+		 text_expr ++ text_set
+	  *)
+  | Acc_var id ->
+	  	let (lvl,offset,b) = locate_any id ml dll sl in
+		let asm = encode_expression expr (ml,sl,dll) caller_lab in
+		let asm = asm ++ movq (reg rbp) (reg r15) in
+		let asm = asm
+			   ++ repeat (movq (ind ~ofs: (2 * addr_size) r15) (reg r15)) lvl in
 
-	text_expr ++ text_set
+		asm ++ match (offset > 0) with
+			   | true ->
+					movq (ind ~ofs: offset r15) (reg r15)
+					++ movq (reg rax) (ind ~ofs: offset r15)
+			   | false ->
+					movq (reg rax) (ind ~ofs: offset r15)
+		 
 ;;
 
-let encode_instr_call id expr_l =
+let encode_instr_call id expr_l (ml,sl,dll) caller_lab =
 	(* Sauvegarde du contexte *)
 	let asm = save_registers () in
 
@@ -466,7 +510,7 @@ let encode_instr_call id expr_l =
 	| "put" ->
 		(* Evaluation de l'entier à afficher, déplacement dans %rdi,
 		   et appel de la putchar() *)
-		encode_expression (List.hd expr_l) ++
+		encode_expression (List.hd expr_l) (ml,sl,dll) caller_lab ++
 		movq expr_reg (reg rdi) ++
 		call "putchar"
 
@@ -478,14 +522,19 @@ let encode_instr_call id expr_l =
 		call "printf"
 
 	| _ ->
-		(* TODO : déterminer préfixe *)
-		let function_label = "" ^ id in
+		let function_label = get_fun_lab id caller_lab ml in
 
 		asm ++
 		(* Evalue puis empile chaque instruction formant un paramètre *)
-		push_arguments expr_l ++
+		(push_arguments expr_l (ml,sl,dll) caller_lab) ++
+		(* Empile le pointeur de frame courant *)
+		pushq (reg rbp) ++
 		(* Empile l'adresse de retour (instruction suivante) et saute *)
-		call function_label
+		call function_label ++
+		(* Dépile le pointeur de frame empilé avant l'appel *)
+		popq r15
+
+		(* TODO : dépiler les arguments mis sur la place *)
 	in
 
 	(* Restauration du contexte sauvegardé *)
@@ -494,68 +543,70 @@ let encode_instr_call id expr_l =
 	asm
 ;;
 
-let encode_instr_return opt_expr =
+let encode_instr_return opt_expr (ml,sl,dll) caller_lab =
 	(* S'il y a une valeur de retour, elle est évaluée et placée dans un
 	   registre défini par convention, en l'occurence %rax *)
 	match opt_expr with
 	| None ->
-		(* TODO: vider pile locale, restaurer frame, puis ret *)
-		ret
+		leave_called_funct
 	| Some(expr) ->
-		encode_expression expr ++ ret
+	   (encode_expression expr (ml,sl,dll) caller_lab)
+	   ++ leave_called_funct
 ;;
 
-let rec encode_instr_list instr_l =
+let rec encode_instr_list instr_l (ml,sl,dll) caller_lab =
 	(* Itération sur la liste des instructions à encoder *)
-	List.fold_left (fun text instr -> text ++ (encode_instruction instr))
+	List.fold_left (fun text instr -> text ++ (encode_instruction instr (ml,sl,dll) caller_lab))
 		(void_instr ()) instr_l
+	
+and encode_instr_block instr_l (ml,sl,dll) caller_lab =
+	encode_instr_list instr_l (ml,sl,dll) caller_lab
 
-and encode_instr_block instr_l =
-	encode_instr_list instr_l
-
-and encode_instr_if if_test_instr_l else_instr_l =
+and encode_instr_if if_test_instr_l else_instr_l (ml,sl,dll) caller_lab =
 	(* Création d'une étiquette unique de fin de branchement *)
-	let if_label_next = get_unique_label "if_next" in
+	let if_label_next = get_unique_label "If_next" in
 
 	(* Itération sur chaque couple condition-instructions *)
 	let encode_branch asm (test_expr, instr_l) =
-		let label_false = get_unique_label "if_false" in
-		asm ++ encode_expression test_expr (* Test *)
+		let label_false = get_unique_label "If_false" in
+		asm ++ encode_expression test_expr (ml,sl,dll) caller_lab (* Test *)
 			++ testq expr_reg expr_reg
 			++ je label_false 			   (* Saut potentiel si faux *)
-			++ encode_instr_list instr_l   (* Instructions de la branche *)
+		        ++ encode_instr_list instr_l (ml,sl,dll) caller_lab
+		(* Instructions de la branche *)
 			++ jmp if_label_next 		   (* Saut vers la fin du branchement *)
 			++ label label_false
 	in
 	let asm = List.fold_left encode_branch (void_instr ()) if_test_instr_l in
 
 	(* Instructions du else, si existantes, et étiquette de fin *)
-	let asm = asm ++ encode_instr_list else_instr_l
+	let asm = asm ++ encode_instr_list else_instr_l (ml,sl,dll) caller_lab
 				  ++ label if_label_next in
 
 	asm
 
-and encode_instr_for id reverse begin_expr end_expr instr_l =
+and encode_instr_for id reverse begin_expr end_expr instr_l (ml,sl,dll) caller_lab =
+	(*
 	(* Création de deux étiquettes uniques pour cette boucle *)
-	let for_label_test = get_unique_label "for_test" in
-	let for_label_next = get_unique_label "for_next" in
+	let for_label_test = get_unique_label "For_test" in
+	let for_label_next = get_unique_label "For_next" in
 
 	(* Initialisation de la variable de boucle *)
 	let addr = 0 (* TODO *) in
 
-	let asm = encode_expression begin_expr
+	let asm = encode_expression begin_expr (ml,sl,dll) caller_lab
 			++ movq expr_reg (ind ~ofs:addr ~scale:addr_size rbp) in
 
 	(* Etiquette de début, test et saut potentiel *)
 	let asm = asm ++ label for_label_test in
-	let asm = asm ++ encode_expression end_expr
+	let asm = asm ++ encode_expression end_expr (ml,sl,dll) caller_lab
 				  ++ movq expr_reg (reg r14)
 				  ++ movq (ind ~ofs:addr ~scale:addr_size rbp) (reg r15)
 				  ++ cmpq (reg r14) (reg r15)
 				  ++ je for_label_next in
 
 	(* Instructions répétées *)
-	let asm = asm ++ encode_instr_list instr_l in
+	let asm = asm ++ encode_instr_list instr_l (ml,sl,dll) caller_lab in
 
 	(* Incrément ou décrément *)
 	let asm = asm ++ movq (ind ~ofs:addr ~scale:addr_size rbp) (reg r15)
@@ -566,21 +617,21 @@ and encode_instr_for id reverse begin_expr end_expr instr_l =
 	let asm = asm ++ jmp for_label_test
 				  ++ label for_label_next in
 
-	asm
+	asm *) nop
 
-and encode_instr_while test_expr instr_l =
+and encode_instr_while test_expr instr_l (ml,sl,dll) caller_lab =
 	(* Création de deux étiquettes uniques pour cette boucle *)
-	let while_label_test = get_unique_label "while_test" in
-	let while_label_next = get_unique_label "while_next" in
+	let while_label_test = get_unique_label "While_test" in
+	let while_label_next = get_unique_label "While_next" in
 
 	(* Etiquette de début, test et saut potentiel *)
 	let asm = label while_label_test in
-	let asm = asm ++ encode_expression test_expr
+	let asm = asm ++ encode_expression test_expr (ml,sl,dll) caller_lab
 				  ++ testq expr_reg expr_reg
 				  ++ je while_label_next in
 
 	(* Instructions répétées *)
-	let asm = asm ++ encode_instr_list instr_l in
+	let asm = asm ++ encode_instr_list instr_l (ml,sl,dll) caller_lab in
 
 	(* Saut vers le début et étiquette de fin *)
 	let asm = asm ++ jmp while_label_test
@@ -588,189 +639,30 @@ and encode_instr_while test_expr instr_l =
 
 	asm
 
-and encode_instruction (instr:instruction) =
+and encode_instruction (instr:instruction) (ml,sl,dll) caller_lab =
 	let instr = instr.value in
 
 	match instr with
 	| Instr_set (var_field, expr) ->
-		encode_instr_set var_field expr
+		encode_instr_set var_field expr (ml,sl,dll) caller_lab
 
 	| Instr_call (id, expr_l) ->
-		encode_instr_call id expr_l
+		encode_instr_call id expr_l (ml,sl,dll) caller_lab
 
 	| Instr_return (opt_expr) ->
-		encode_instr_return opt_expr
+		encode_instr_return opt_expr (ml,sl,dll) caller_lab
 
 	| Instr_block (instr_l) ->
-		encode_instr_block instr_l
+		encode_instr_block instr_l (ml,sl,dll) caller_lab
 
 	| Instr_if (if_test_instr_l, else_instr_l) ->
-		encode_instr_if if_test_instr_l else_instr_l
+		encode_instr_if if_test_instr_l else_instr_l (ml,sl,dll) caller_lab
 
 	| Instr_for (id, reverse, begin_expr, end_expr, instr_l) ->
-		encode_instr_for id reverse begin_expr end_expr instr_l
+		encode_instr_for id reverse begin_expr end_expr instr_l (ml,sl,dll) caller_lab
 
 	| Instr_while (test_expr, instr_l) ->
-		encode_instr_while test_expr instr_l
-;;
-
-(*****************************************************************************)
-(*                                 DECLARATIONS                              *)
-(*****************************************************************************)
-
-(* Type utilisé pour représenter une fonction/procédure à encoder en x86,
-   contenant les informations suivantes :
-   - un identifiant (ident) et un préfixe (ident)
-   - une table des symboles (sym_table)
-   - une liste d'instructions à effectuer (instr_list)
-*)
-type f_decl = ident * ident * sym_table * instr_list * text
-
-(* Liste de fonctions/procédures à encoder en x86 *)
-let functions_to_encode_l = ref []
-
-let add_function_to_encode (f:f_decl) =
-	functions_to_encode_l := f :: !functions_to_encode_l
-;;
-
-(* Type du contexte utilisé lors de l'ajout des déclarations
-   Il permet de conserver certaines informations utiles pour ajouter
-   des symboles ou des déclarations à encoder :
-   - un préfixe d'identifiant de fonction/procédure (indent)
-   - le niveau de profondeur actuel (level)
-   - la taille de l'offset courant pour les variables locales (offset)
-   - la table des symboles actuelle (sym_table)
-*)
-type decl_context = {
-	prefix 		: ident;
-	level 		: level;
-	local_offset: offset;
-	symbols 	: sym_table
-}
-
-(*****************************************************************************)
-
-let encode_decl_type id context =
-	let type_size  = 0 in (* TODO *)
-	let new_symbol = (id, (Sym_type type_size)) in
-
-	{
-		prefix 		 = context.prefix;
-		level 		 = context.level;
-		local_offset = context.local_offset;
-		symbols 	 = add_symbol context.symbols new_symbol
-	}
-;;
-
-let encode_decl_access id id_type context =
-	(* TODO ? *)
-	context
-;;
-
-let encode_decl_record id fields_l context =
-	(* TODO ? *)
-	context
-;;
-
-(* TODO : expression inutile ici ? ou pas ? *)
-let encode_decl_vars id_l t opt_expr context =
-	let offset    = ref context.local_offset in
-	let type_size = 0 in (* TODO *)
-
-	(* Ajout de chaque variable comme nouveau symbole *)
-	let add_var_as_symbol symbols id =
-		let var_sym = (id, Sym_variable (Var_local, context.level,
-										 type_size, !offset)) in
-		offset := !offset + type_size; (* offset mis à jour *)
-
-		add_symbol symbols var_sym
-	in
-	let symbols = List.fold_left add_var_as_symbol
-								 context.symbols
-								 id_l in
-
-	{
-		prefix 		 = context.prefix;
-		level 		 = context.level;
-		local_offset = !offset;
-		symbols 	 = symbols
-	}
-;;
-
-(* Renvoit une liste d'identifiants utilisés par des boucles for *)
-(*
-let find_for_loops_variables instr_l =
-	let is_for_instr instr =
-		match instr with
-		| Instr_for _ -> true
-		| _ 		  -> false
-	in
-	let get_for_var (id, _, _, _, _) =
-		id
-	in
-	
-	let for_instr_l = List.find_all is_for_instr instr_l in
-	List.map get_for_var for_instr_l
-;;
-*)
-
-let rec encode_decl_procedure id params decl_l instr_l context =
-(*	(* La table des symboles utilisée par la procédure doit (en plus)
-	   contenir ses paramètres, suivis de ses variables locales, et
-	   enfin de ses variables de boucle *)
-	let proc_decl_symbols = context.symbols in
-
-	(* Paramètres *)
-	let add_param_as_sym (id_l, mode_opt, ) symbols =
-
-	let proc_decl_symbols = List.fold_left
-
-
-	(* On met également à jour le préfixe et le niveau *)
-	let proc_decl_level  = context.level + 1 in
-	let proc_decl_prefix = id ^ context.prefix in
-
-	(* La procédure est ajoutée à la liste des déclarations à encoder *)
-	let proc_decl = (id, context.prefix, proc_decl_symbols, instr_l) in
-	add_function_to_encode proc_decl;
-
-	(* Enfin, la procédure est ajoutée au contexte renvoyé *)
-	let symbols = add_symbol context.symbols 
-	{
-		prefix 		 = context.prefix;
-		level 		 = context.level;
-		local_offset = !offset;
-		symbols 	 = symbols
-	}
-*)
-	(* TODO *)
-	context
-
-and encode_decl_function id params t decl_l instr_l context =
-	(* TODO *)
-	context
-
-and encode_declaration (decl:declaration) context =
-	let decl = decl.value in
-
-	match decl with
-	| Decl_type (id) ->
-		encode_decl_type id context
-
-	| Decl_access (id, id_type) ->
-		encode_decl_access id id_type context
-
-	| Decl_record (id, fields_l) ->
-		encode_decl_record id fields_l context
-
-	| Decl_vars (id_l, t, opt_expr)  ->
-		encode_decl_vars id_l t opt_expr context
-
-	| Decl_procedure (id, params, decl_l, instr_l) ->
-		encode_decl_procedure id params decl_l instr_l context
-
-	| Decl_function (id, params, t, decl_l, instr_l) ->
-		encode_decl_function id params t decl_l instr_l context
+		encode_instr_while test_expr instr_l (ml,sl,dll) caller_lab
 ;;
 
 (*****************************************************************************)
@@ -889,11 +781,15 @@ let encode_all_functions =
 	List.fold_left encode_f (void_instr ()) !functions_to_encode_l
 ;;
  *)
-  let encode_fun (id,prefix,instr_l,assign_asm) =
-  label (prefix ^ sep ^ id) ++
-    assign_asm ++
-    (List.fold_left (fun asm instr -> asm++(encode_instruction instr)) nop instr_l);;
-    
+let encode_fun (id,prefix,instr_l,assign_asm) (ml,sl,dll) caller_lab=
+  (match prefix with
+   |"" -> label id
+   |_ -> label (prefix ^ (Char.escaped sep) ^ id)) ++
+      enter_called_funct id ++ 
+      assign_asm ++
+      (List.fold_left (fun asm instr -> asm++(encode_instruction
+						instr (ml,sl,dll) caller_lab)) nop instr_l)++
+      leave_called_funct
   (* à une fonction associe son code *)
 
 let add_to_dll decl dll =
@@ -901,7 +797,7 @@ let add_to_dll decl dll =
   |hd::tl -> (hd@[decl]) ::tl
   |[] -> [[decl]];;
   
-let get_local_alloc_asm decl_l map_l sign_l decl_l_l =
+let get_local_alloc_asm decl_l map_l sign_l decl_l_l caller_lab=
   let size_ty t =
     match t with
     | Ty_access _ -> addr_size
@@ -934,7 +830,7 @@ let get_local_alloc_asm decl_l map_l sign_l decl_l_l =
 	  let (asm_assign,new_offset) =
 	    List.fold_left (incr_asm size_t) (asm,offset) id_l in
 	  let asm = asm
-		    ++ encode_expression expr
+		    ++ encode_expression expr (map_l,sign_l,decl_l_l) caller_lab
 		    ++ asm_assign in
 	  aux tail asm (add_to_dll head decl_l_l) new_offset
 
@@ -952,10 +848,12 @@ let run_through decl_l cont_tree map_l sign_l decl_l_l =
        match hd.value with
        |Decl_procedure (id,_,decl_li,instr_l)
        |Decl_function (id,_,_,decl_li,instr_l) ->
-	 let assign_asm = get_local_alloc_asm decl_li map_l sign_l decl_l_l in
+	 let assign_asm = get_local_alloc_asm decl_li map_l sign_l decl_l_l prefixacc in
 	 (* On se prépare à encoder f, et ses sous fonctions *)
 	 let f_to_encode = (id, prefixacc, instr_l, assign_asm) in
-	 let f_prefix = prefixacc ^ sep ^ id in
+	 let f_prefix = match prefixacc with
+	   |"" -> id
+	   |_ -> prefixacc ^ (Char.escaped sep) ^ id in
 	 let f_context = Tmap.find id (cont_tree.subtree) in
 	 let f_map_l = (f_context.node)::map_l in
 	 let f_sign_l = match search id map_l with
@@ -966,7 +864,9 @@ let run_through decl_l cont_tree map_l sign_l decl_l_l =
 	   |_ -> failwith "should not happen l964" in
 	 let next_asm = aux decl_li f_context f_map_l f_sign_l ([]::decl_l_l) asmacc f_prefix in
 
-	 aux tl cont_tree map_l sign_l decl_l_l ((encode_fun f_to_encode)::next_asm) prefixacc
+	 aux tl cont_tree map_l sign_l decl_l_l
+	     ((encode_fun f_to_encode
+			  (f_map_l,f_sign_l, (decl_li::decl_l_l)) f_prefix)::next_asm) prefixacc
        |_ -> aux tl cont_tree map_l sign_l decl_l_l asmacc prefixacc 
   in
   aux decl_l cont_tree map_l sign_l decl_l_l [] "";;
@@ -990,9 +890,6 @@ let encode_text_segment (id,dl,il) context_tree =
 	let encoded_functions = run_through [maindecl]
 					    upper_context_tree [upper_context_tree.node;init_map]
 					    [] [] in
-	let () = match encoded_functions with
-	  |[] -> print_string "Vide";
-	  |_ -> print_string "Non vide"; in
 	
 	List.fold_left (fun x y -> x++y) asm encoded_functions
 ;;

@@ -40,8 +40,8 @@
 %left EQUAL DIFFERENT
 %left COMPARATOR
 %left PLUS MINUS
-%left TIMES DIV REM
 %nonassoc NEG
+%left TIMES DIV REM
 %left DOT
 
 (* Symboles non-terminaux *)
