@@ -199,7 +199,8 @@ let rec encode_expr_access var_field =
 		let offset = 0 in (* TODO *)
 
 		(* Calcul de l'adresse de référence dans %r15 *)
-		let asm = movq (reg rbp) (reg r15) ++
+		let asm = comment ("\tVar access to " ^ id)
+			   ++ movq (reg rbp) (reg r15) ++
 		repeat (movq (ind ~ofs: (2 * addr_size) r15) (reg r15))
 			   nb_above_levels in
 
@@ -361,7 +362,8 @@ and encode_expr_new id =
 	(* Par convention, la valeur de retour est déjà dans %rax *)
 
 and encode_expr_call id expr_l (ml,sl,dll) caller_lab =
-	let asm = save_registers () in
+	let asm = comment ("\tExpression call to " ^ id)
+		   ++ save_registers () in
 	let function_label = get_fun_lab id caller_lab ml in
 	
 	let asm = asm ++
@@ -452,6 +454,7 @@ and push_arguments expr_l (ml,sl,dll) caller_lab =
 			pushq (reg rax)
 	in
 
+	comment "\tArgs are pushed (for a fct call)" ++
 	List.fold_left push_arg (void_instr ()) expr_l
 
 (* A utiliser avant chaque appel de fonction, dans l'appelant *)
@@ -477,7 +480,8 @@ let alloc_local_space id =
 let enter_called_funct id =
 	(* Empile le pointeur de pile courant %rsp, et met l'adresse de pile
 	   courante das %rbp *)
-	let asm = pushq (reg rsp)
+	let asm = comment ("\tEnter definition of fct " ^ id)
+		   ++ pushq (reg rsp)
 		   ++ movq (reg rsp) (reg rbp) in
 
 	(* Alloue de l'espace pour les variables locales (+ variables de boucles) *)
@@ -520,8 +524,10 @@ let encode_instr_set var_field expr (ml,sl,dll) caller_lab =
 ;;
 
 let encode_instr_call id expr_l (ml,sl,dll) caller_lab =
+	let asm = comment ("\tCall function " ^ id) in
+
 	(* Sauvegarde du contexte *)
-	let asm = save_registers () in
+	let asm = asm ++ save_registers () in
 
 	(* Gestion des fonctions préféfinies *)
 	let asm = asm ++ match id with
@@ -586,6 +592,8 @@ and encode_instr_if if_test_instr_l else_instr_l (ml,sl,dll) caller_lab =
 	(* Création d'une étiquette unique de fin de branchement *)
 	let if_label_next = get_unique_label "If_next" in
 
+	let asm = comment "\tIf branch begins here" in
+
 	(* Itération sur chaque couple condition-instructions *)
 	let encode_branch asm (test_expr, instr_l) =
 		let label_false = get_unique_label "If_false" in
@@ -600,7 +608,7 @@ and encode_instr_if if_test_instr_l else_instr_l (ml,sl,dll) caller_lab =
 			++ jmp if_label_next 		   
 			++ label label_false
 	in
-	let asm = List.fold_left encode_branch (void_instr ()) if_test_instr_l in
+	let asm = List.fold_left encode_branch asm if_test_instr_l in
 
 	(* Instructions du else, si existantes, et étiquette de fin *)
 	let asm = asm ++ encode_instr_list else_instr_l (ml,sl,dll) caller_lab
@@ -648,7 +656,8 @@ and encode_instr_while test_expr instr_l (ml,sl,dll) caller_lab =
 	let while_label_next = get_unique_label "While_next" in
 
 	(* Etiquette de début, test et saut potentiel *)
-	let asm = label while_label_test in
+	let asm = comment "\tWhile loop begins here"
+		   ++ label while_label_test in
 	let asm = asm ++ encode_expression test_expr (ml,sl,dll) caller_lab
 				  ++ testq expr_reg expr_reg
 				  ++ je while_label_next in
