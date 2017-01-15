@@ -378,7 +378,7 @@ and encode_expr_call id expr_l (ml,sl,dll) caller_lab =
 		(* Dépile le pointeur de frame empilé avant l'appel *)
 		popq r15 ++
 		(* Dépile tous les arguments précédemment empilés *)
-		subq (imm args_size) (reg rsp)
+		addq (imm args_size) (reg rsp)
 	in
 
 	(* Restauration du contexte sauvegardé *)
@@ -459,7 +459,7 @@ and push_arguments id expr_l (ml,sl,dll) caller_lab =
 			end
 
 		| false ->
-			let asm = encode_expression expr (ml,sl,dll) caller_lab
+			let asm = asm ++ encode_expression expr (ml,sl,dll) caller_lab
 				   ++ pushq (reg rax) in
 			(asm, args_size + arg_size)
 	in
@@ -467,9 +467,10 @@ and push_arguments id expr_l (ml,sl,dll) caller_lab =
 				|Some(Val(Function(idl,_)),_) -> idl
 				|_ -> failwith "Not calling a function" in
 
-	comment "\tArgs are pushed (for a fct call)" ++
-	List.fold_left push_arg (nop, 0) (List.map2 (fun (id,et,b) ex -> (ex,b)) 
-										largs expr_l) 
+	List.fold_left push_arg ((comment "\tArgs are pushed (for a fct call)"),0)
+				 (List.map2 (fun (id,et,b) ex -> (ex,b)) 
+								 largs expr_l)
+	
 
 (* A utiliser avant chaque appel de fonction, dans l'appelant *)
 and save_registers () = 
@@ -574,7 +575,7 @@ let encode_instr_call id expr_l (ml,sl,dll) caller_lab =
 		(* Dépile le pointeur de frame empilé avant l'appel *)
 		popq r15 ++
 		(* Dépile tous les arguments précédemment empilés *)
-		subq (imm args_size) (reg rsp)
+		addq (imm args_size) (reg rsp)
 	in
 
 	(* Restauration du contexte sauvegardé *)
