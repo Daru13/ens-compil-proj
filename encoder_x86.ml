@@ -330,9 +330,11 @@ and encode_expr_unop op expr =
 	match op with
 	| UnOp_not ->
 		encode_expression expr ++
+		movq (imm 0) (reg r14) ++ (* TODO : optimiser ? *)
+		movq (imm 1) (reg r15) ++
 		cmpq (reg rax) (reg rax) ++
-		cmovne (imm 0) (reg rax) ++
-		cmove  (imm 1) (reg rax)
+		cmovne (reg r14) (reg rax) ++
+		cmove  (reg r15) (reg rax)
 
 	| UnOp_negative ->
 		encode_expression expr ++
