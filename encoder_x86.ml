@@ -854,7 +854,7 @@ let get_local_alloc_asm id decl_l map_l sign_l decl_l_l caller_lab=
 
     match decl_l with
     | [] ->
-       asm
+       (offset,asm)
     | head :: tail ->
        match head.value with
        | Decl_vars (id_l, t, None) ->
@@ -877,7 +877,8 @@ let get_local_alloc_asm id decl_l map_l sign_l decl_l_l caller_lab=
 	  aux tail asm decl_l_l offset
   in
 
-  aux decl_l nop ([]::decl_l_l) 0
+  let (os,asm) = aux decl_l nop ([]::decl_l_l) 0 in
+  (subq (imm os) (reg rsp))++asm
 ;;
 
 let run_through decl_l cont_tree map_l sign_l decl_l_l =
