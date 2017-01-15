@@ -190,35 +190,38 @@ let encode_expr_null () =
 ;;
 
 (* TODO *)
-let rec encode_expr_access var_field =
+let rec encode_expr_access var_field (ml,sl,dll) caller_lab =
 	match var_field with
-	| Acc_var (id) ->
+	| Acc_var (id) -> begin
+	   match search id ml with
+	   |Some(Val(Function([],t)),b) -> encode_expr_call id [] (ml,sl,dll) caller_lab
+	   |_ ->
 		(* Propriétés utiles de la variable à laquelle on veut accéder *)
-		let nb_above_levels = 0 in (* TODO *)
-		let is_param_in_out = false in (* TODO *)
-		let offset = 0 in (* TODO *)
-
-		(* Calcul de l'adresse de référence dans %r15 *)
-		let asm = comment ("\tVar access to " ^ id)
-			   ++ movq (reg rbp) (reg r15) ++
-		repeat (movq (ind ~ofs: (2 * addr_size) r15) (reg r15))
-			   nb_above_levels in
-
-		(* S'il s'agit d'une variable locale ou d'un paramètre IN,
+	     let nb_above_levels = 0 in (* TODO *)
+	     let is_param_in_out = false in (* TODO *)
+	     let offset = 0 in (* TODO *)
+	     
+	     (* Calcul de l'adresse de référence dans %r15 *)
+	     let asm = comment ("\tVar access to " ^ id)
+		       ++ movq (reg rbp) (reg r15) ++
+			 repeat (movq (ind ~ofs: (2 * addr_size) r15) (reg r15))
+				nb_above_levels in
+	     
+	     (* S'il s'agit d'une variable locale ou d'un paramètre IN,
 		   il suffit de récupérer le contenu de la case mémoire placée en
 		   %r15 + offset.
 
 		   S'il s'agit d'un paramètre IN_OUT, alors c'est la valeur de
 		   la case mémoire pointée par celle en %r15 + offset
 		   qu'il faut renvoyer*)
-		asm ++ begin match is_param_in_out with
-		| true ->
-			movq (ind ~ofs: offset r15) (reg rax) ++
-			movq (ind rax) expr_reg
-		| false -> 
-			movq (ind ~ofs: offset r15) expr_reg
-		end
-
+	     asm ++ begin match is_param_in_out with
+			  | true ->
+			     movq (ind ~ofs: offset r15) (reg rax) ++
+			       movq (ind rax) expr_reg
+			  | false -> 
+			     movq (ind ~ofs: offset r15) expr_reg
+		    end
+			end 
 	| Acc_field (expr, id) ->
 		(* Non supporté à l'heure actuelle... *)
 		nop
@@ -405,7 +408,7 @@ and encode_expression (expr: expression) (ml,sl,dll) caller_lab =
 		encode_expr_null ()
 
 	| Expr_access (var_field) ->
-		encode_expr_access var_field
+		encode_expr_access var_field (ml,sl,dll) caller_lab
 
 	| Expr_binop (expr_1, op, expr_2) ->
 		encode_expr_binop op expr_1 expr_2 (ml,sl,dll) caller_lab
@@ -417,7 +420,7 @@ and encode_expression (expr: expression) (ml,sl,dll) caller_lab =
 		encode_expr_new id
 
 	| Expr_call (id, expr_l) ->
-		encode_expr_call id expr_l (ml,sl,dll) caller_lab
+	        encode_expr_call id expr_l (ml,sl,dll) caller_lab
 
 	| Expr_ascii (expr) ->
 	   encode_expr_ascii expr (ml,sl,dll) caller_lab
@@ -842,7 +845,8 @@ let get_local_alloc_asm decl_l map_l sign_l decl_l_l caller_lab=
 	  | None -> failwith "should not happen l910"
 	  | Some expr_t ->
 	     (size_exp_type expr_t) end
-       |_ -> failwith "should not happen l913"
+       |None -> failwith ("Alloc : Type "^ id ^ " was not found")
+       |_ -> failwith ("should not happen l913 :" ^ id ^ " is not a type...")
   in
 
   let rec aux (decl_l:declaration list) asm decl_l_l offset =
@@ -883,14 +887,15 @@ let run_through decl_l cont_tree map_l sign_l decl_l_l =
        match hd.value with
        |Decl_procedure (id,_,decl_li,instr_l)
        |Decl_function (id,_,_,decl_li,instr_l) ->
-	 let assign_asm = get_local_alloc_asm decl_li map_l sign_l decl_l_l prefixacc in
+	 let f_context = Tmap.find id (cont_tree.subtree) in
+	 let f_map_l = (f_context.node)::map_l in
+	 let assign_asm = get_local_alloc_asm decl_li f_map_l sign_l decl_l_l prefixacc in
 	 (* On se prépare à encoder f, et ses sous fonctions *)
 	 let f_to_encode = (id, prefixacc, instr_l, assign_asm) in
 	 let f_prefix = match prefixacc with
 	   |"" -> id
 	   |_ -> prefixacc ^ (Char.escaped sep) ^ id in
-	 let f_context = Tmap.find id (cont_tree.subtree) in
-	 let f_map_l = (f_context.node)::map_l in
+	 
 	 let f_sign_l = match search id map_l with
 	   |Some(dt,_) -> begin match dt with
 				|Val(Function(a,b)) -> (a,b)::sign_l
@@ -902,7 +907,7 @@ let run_through decl_l cont_tree map_l sign_l decl_l_l =
 	 aux tl cont_tree map_l sign_l decl_l_l
 	     ((encode_fun f_to_encode
 			  (f_map_l,f_sign_l, (decl_li::decl_l_l)) f_prefix)::next_asm) prefixacc
-       |_ -> aux tl cont_tree map_l sign_l decl_l_l asmacc prefixacc 
+       |_ -> aux tl cont_tree map_l sign_l (add_to_dll hd decl_l_l) asmacc prefixacc 
   in
   aux decl_l cont_tree map_l sign_l decl_l_l [] ""
 ;;
