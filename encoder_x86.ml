@@ -194,9 +194,9 @@ let rec encode_expr_access var_field =
 	match var_field with
 	| Acc_var (id) ->
 		(* Propriétés utiles de la variable à laquelle on veut accéder *)
-		let nb_above_levels = 0 in
-		let is_param_in_out = false in
-		let offset = 0 in
+		let nb_above_levels = 0 in (* TODO *)
+		let is_param_in_out = false in (* TODO *)
+		let offset = 0 in (* TODO *)
 
 		(* Calcul de l'adresse de référence dans %r15 *)
 		let asm = movq (reg rbp) (reg r15) ++
@@ -213,9 +213,9 @@ let rec encode_expr_access var_field =
 		asm ++ begin match is_param_in_out with
 		| true ->
 			movq (ind ~ofs: offset r15) (reg rax) ++
-			movq (ind rax) (reg rax)
+			movq (ind rax) expr_reg
 		| false -> 
-			movq (ind ~ofs: offset r15) (reg rax)
+			movq (ind ~ofs: offset r15) expr_reg
 		end
 
 	| Acc_field (expr, id) ->
@@ -389,9 +389,7 @@ and encode_expr_ascii expr (ml,sl,dll) caller_lab =
 
 (* TODO : problème avec champs d'enregistrements portant le même nom ? *)
 and encode_expression (expr: expression) (ml,sl,dll) caller_lab =
-	let expr = expr.value in 
-
-	match expr with
+	match expr.value with
 	| Expr_int (n) ->
 		encode_expr_int n
 
@@ -430,21 +428,43 @@ and encode_expression (expr: expression) (ml,sl,dll) caller_lab =
 (* Evalue et empile les expressions de la liste fournie *)
 and push_arguments expr_l (ml,sl,dll) caller_lab = 
 	let push_arg asm expr =
-		asm ++
-		encode_expression expr (ml,sl,dll) caller_lab ++
-		pushq expr_reg
+		let is_arg_in_out = false in (* TODO *)
+
+		(* Si le paramètre est IN_OUT, on place son adresse sur la pile,
+		   et non sa valeur ! *)
+		match is_arg_in_out with
+		| true ->
+			(* Propriétés utiles de la variable à laquelle on veut accéder *)
+			let nb_above_levels = 0 in (* TODO *)
+			let offset = 0 in (* TODO *)
+
+			(* Calcul de l'adresse de référence dans %r15 *)
+			let asm = movq (reg rbp) (reg r15) ++
+			repeat (movq (ind ~ofs: (2 * addr_size) r15) (reg r15))
+				   nb_above_levels in
+
+			(* Adresse de la variable IN OUT *)
+			asm ++ addq (imm offset) (reg r15)
+				++ pushq (reg r15)
+
+		| false ->
+			encode_expression expr (ml,sl,dll) caller_lab ++
+			pushq (reg rax)
 	in
 
 	List.fold_left push_arg (void_instr ()) expr_l
 
 (* A utiliser avant chaque appel de fonction, dans l'appelant *)
 and save_registers () = 
-	void_instr ()
-
+	(* Aucun registre utile à sauvegarder, mais la fonction est
+	   présente au cas où ! *)
+	nop
 
 (* A utiliser après chaque appel de fonction, dans l'appelé *)
 and load_registers () =
-	void_instr ()
+	(* Aucun registre utile à sauvegarder, mais la fonction est
+	   présente au cas où ! *)
+	nop
 ;;
 
 (* Réserve l'espace nécessaire pour les variables locales d'une fonction *)
@@ -461,9 +481,7 @@ let enter_called_funct id =
 		   ++ movq (reg rsp) (reg rbp) in
 
 	(* Alloue de l'espace pour les variables locales (+ variables de boucles) *)
-	let asm = asm ++ alloc_local_space id in
-
-	asm
+	asm ++ alloc_local_space id
 ;;
 
 (* A utiliser à la fin de chaque définition de fonction *)
@@ -556,8 +574,10 @@ let encode_instr_return opt_expr (ml,sl,dll) caller_lab =
 
 let rec encode_instr_list instr_l (ml,sl,dll) caller_lab =
 	(* Itération sur la liste des instructions à encoder *)
-	List.fold_left (fun text instr -> text ++ (encode_instruction instr (ml,sl,dll) caller_lab))
-		(void_instr ()) instr_l
+	List.fold_left
+		(fun text instr -> text ++ (encode_instruction instr (ml,sl,dll) caller_lab))
+		(void_instr ())
+		instr_l
 	
 and encode_instr_block instr_l (ml,sl,dll) caller_lab =
 	encode_instr_list instr_l (ml,sl,dll) caller_lab
@@ -569,12 +589,15 @@ and encode_instr_if if_test_instr_l else_instr_l (ml,sl,dll) caller_lab =
 	(* Itération sur chaque couple condition-instructions *)
 	let encode_branch asm (test_expr, instr_l) =
 		let label_false = get_unique_label "If_false" in
+
 		asm ++ encode_expression test_expr (ml,sl,dll) caller_lab (* Test *)
 			++ testq expr_reg expr_reg
-			++ je label_false 			   (* Saut potentiel si faux *)
-		        ++ encode_instr_list instr_l (ml,sl,dll) caller_lab
-		(* Instructions de la branche *)
-			++ jmp if_label_next 		   (* Saut vers la fin du branchement *)
+			(* Saut potentiel si faux *)
+			++ je label_false 			   
+		   (* Instructions de la branche *)
+		    ++ encode_instr_list instr_l (ml,sl,dll) caller_lab
+			(* Saut vers la fin du branchement *)
+			++ jmp if_label_next 		   
 			++ label label_false
 	in
 	let asm = List.fold_left encode_branch (void_instr ()) if_test_instr_l in
@@ -640,9 +663,7 @@ and encode_instr_while test_expr instr_l (ml,sl,dll) caller_lab =
 	asm
 
 and encode_instruction (instr:instruction) (ml,sl,dll) caller_lab =
-	let instr = instr.value in
-
-	match instr with
+	match instr.value with
 	| Instr_set (var_field, expr) ->
 		encode_instr_set var_field expr (ml,sl,dll) caller_lab
 
@@ -666,6 +687,9 @@ and encode_instruction (instr:instruction) (ml,sl,dll) caller_lab =
 ;;
 
 (*****************************************************************************)
+(*                             ENCODAGE DU PROGRAMME                         *)
+(*****************************************************************************)
+
 (*
 let set_all_functions_to_encode (p_id, p_decl_l, p_instr_l) context_tree =
 	let symbols = get_empty_symbol_table () in
@@ -780,7 +804,8 @@ let encode_all_functions =
 
 	List.fold_left encode_f (void_instr ()) !functions_to_encode_l
 ;;
- *)
+*)
+
 let encode_fun (id,prefix,instr_l,assign_asm) (ml,sl,dll) caller_lab=
   (match prefix with
    |"" -> label id
@@ -838,7 +863,8 @@ let get_local_alloc_asm decl_l map_l sign_l decl_l_l caller_lab=
 	  aux tail asm decl_l_l offset
   in
 
-  aux decl_l nop ([]::decl_l_l) 0 ;;
+  aux decl_l nop ([]::decl_l_l) 0
+;;
 
 let run_through decl_l cont_tree map_l sign_l decl_l_l =
   let rec aux (decl_l:declaration list) cont_tree map_l sign_l decl_l_l asmacc prefixacc =
@@ -869,7 +895,9 @@ let run_through decl_l cont_tree map_l sign_l decl_l_l =
 			  (f_map_l,f_sign_l, (decl_li::decl_l_l)) f_prefix)::next_asm) prefixacc
        |_ -> aux tl cont_tree map_l sign_l decl_l_l asmacc prefixacc 
   in
-  aux decl_l cont_tree map_l sign_l decl_l_l [] "";;
+  aux decl_l cont_tree map_l sign_l decl_l_l [] ""
+;;
+
 let encode_text_segment (id,dl,il) context_tree =
 	(* Débute par la définition de main *)
 	let asm = glabel "main"
@@ -900,11 +928,6 @@ let encode_data_segment () =
 ;;
 
 let encode_program prog output_file context_tree =
-	
-
-	(* Remplit la liste des fonctions à encoder *)
-	
-
 	(* Génère l'assembleur des segments text et data *)
 	let asm_text = encode_text_segment prog context_tree in
 	let asm_data = encode_data_segment () in
