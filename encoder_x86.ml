@@ -367,17 +367,18 @@ and encode_expr_call id expr_l (ml,sl,dll) caller_lab =
 		   ++ save_registers () in
 	let function_label = get_fun_lab id caller_lab ml in
 	
-	let asm = asm ++
-		(* Evalue puis empile chaque instruction formant un paramètre *)
-		(push_arguments expr_l (ml,sl,dll) caller_lab) ++
+	let (asm_push_args, args_size) =
+		push_arguments id expr_l (ml,sl,dll) caller_lab in
+
+	let asm = asm ++ asm_push_args ++
 		(* Empile le pointeur de frame courant *)
 		pushq (reg rbp) ++
 		(* Empile l'adresse de retour (instruction suivante) et saute *)
 		call function_label ++
 		(* Dépile le pointeur de frame empilé avant l'appel *)
-		popq r15
-		
-		(* TODO : dépiler les arguments mis sur la place *)
+		popq r15 ++
+		(* Dépile tous les arguments précédemment empilés *)
+		subq (imm args_size) (reg rsp)
 	in
 
 	(* Restauration du contexte sauvegardé *)
@@ -429,34 +430,46 @@ and encode_expression (expr: expression) (ml,sl,dll) caller_lab =
 (*****************************************************************************)
 
 (* Evalue et empile les expressions de la liste fournie *)
-and push_arguments expr_l (ml,sl,dll) caller_lab = 
-	let push_arg asm expr =
-		let is_arg_in_out = false in (* TODO *)
+and push_arguments id expr_l (ml,sl,dll) caller_lab = 
+	let push_arg  (asm, args_size) ((expr:expression),is_in_out) =
+		(* TODO : mettre à jour taille argument ? *)
+		let arg_size = addr_size in
 
 		(* Si le paramètre est IN_OUT, on place son adresse sur la pile,
 		   et non sa valeur ! *)
-		match is_arg_in_out with
+		match is_in_out with
 		| true ->
-			(* Propriétés utiles de la variable à laquelle on veut accéder *)
-			let nb_above_levels = 0 in (* TODO *)
-			let offset = 0 in (* TODO *)
+			begin match expr.value with
+			| Expr_access (Acc_var(var_id)) ->
+				let (nb_above_levels, offset, _) =
+					locate_any var_id ml dll sl in
 
-			(* Calcul de l'adresse de référence dans %r15 *)
-			let asm = movq (reg rbp) (reg r15) ++
-			repeat (movq (ind ~ofs: (2 * addr_size) r15) (reg r15))
-				   nb_above_levels in
+				let asm = movq (reg rbp) (reg r15) ++
+		 		repeat (movq (ind ~ofs: (2 * addr_size) r15) (reg r15))
+					   nb_above_levels in
+				let asm = asm ++ addq (imm offset) (reg r15)
+							  ++ pushq (reg r15) in
 
-			(* Adresse de la variable IN OUT *)
-			asm ++ addq (imm offset) (reg r15)
-				++ pushq (reg r15)
+				(asm, args_size + arg_size)
+
+			| Expr_access (Acc_field(field_expr, field_id)) ->
+				(nop, args_size) (* TODO *)
+
+			| _ -> failwith "In push_arg: unexpected IN OUT expression"
+			end
 
 		| false ->
-			encode_expression expr (ml,sl,dll) caller_lab ++
-			pushq (reg rax)
+			let asm = encode_expression expr (ml,sl,dll) caller_lab
+				   ++ pushq (reg rax) in
+			(asm, args_size + arg_size)
 	in
+	let largs = match search id ml with
+				|Some(Val(Function(idl,_)),_) -> idl
+				|_ -> failwith "Not calling a function" in
 
 	comment "\tArgs are pushed (for a fct call)" ++
-	List.fold_left push_arg (void_instr ()) expr_l
+	List.fold_left push_arg (nop, 0) (List.map2 (fun (id,et,b) ex -> (ex,b)) 
+										largs expr_l) 
 
 (* A utiliser avant chaque appel de fonction, dans l'appelant *)
 and save_registers () = 
@@ -548,17 +561,20 @@ let encode_instr_call id expr_l (ml,sl,dll) caller_lab =
 	| _ ->
 		let function_label = get_fun_lab id caller_lab ml in
 
-		asm ++
 		(* Evalue puis empile chaque instruction formant un paramètre *)
-		(push_arguments expr_l (ml,sl,dll) caller_lab) ++
+		let (asm_push_args, args_size) =
+			push_arguments id expr_l (ml,sl,dll) caller_lab in
+
+		asm ++
+		asm_push_args ++
 		(* Empile le pointeur de frame courant *)
 		pushq (reg rbp) ++
 		(* Empile l'adresse de retour (instruction suivante) et saute *)
 		call function_label ++
 		(* Dépile le pointeur de frame empilé avant l'appel *)
-		popq r15
-
-		(* TODO : dépiler les arguments mis sur la place *)
+		popq r15 ++
+		(* Dépile tous les arguments précédemment empilés *)
+		subq (imm args_size) (reg rsp)
 	in
 
 	(* Restauration du contexte sauvegardé *)
