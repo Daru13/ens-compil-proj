@@ -834,7 +834,7 @@ let add_to_dll decl dll =
   |hd::tl -> (hd@[decl]) ::tl
   |[] -> [[decl]];;
   
-let get_local_alloc_asm decl_l map_l sign_l decl_l_l caller_lab=
+let get_local_alloc_asm id decl_l map_l sign_l decl_l_l caller_lab=
   let size_ty t =
     match t with
     | Ty_access _ -> addr_size
@@ -867,6 +867,9 @@ let get_local_alloc_asm decl_l map_l sign_l decl_l_l caller_lab=
 	  let size_t = size_ty t in
 	  let (asm_assign,new_offset) =
 	    List.fold_left (incr_asm size_t) (asm,offset) id_l in
+	  let caller_lab = match caller_lab with
+	    |"" -> id
+	    |_ -> caller_lab ^ (Char.escaped sep) ^ id in
 	  let asm = asm
 		    ++ encode_expression expr (map_l,sign_l,decl_l_l) caller_lab
 		    ++ asm_assign in
@@ -889,7 +892,7 @@ let run_through decl_l cont_tree map_l sign_l decl_l_l =
        |Decl_function (id,_,_,decl_li,instr_l) ->
 	 let f_context = Tmap.find id (cont_tree.subtree) in
 	 let f_map_l = (f_context.node)::map_l in
-	 let assign_asm = get_local_alloc_asm decl_li f_map_l sign_l decl_l_l prefixacc in
+	 let assign_asm = get_local_alloc_asm id decl_li f_map_l sign_l decl_l_l prefixacc in
 	 (* On se prépare à encoder f, et ses sous fonctions *)
 	 let f_to_encode = (id, prefixacc, instr_l, assign_asm) in
 	 let f_prefix = match prefixacc with
