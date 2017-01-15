@@ -868,7 +868,7 @@ let get_local_alloc_asm id decl_l map_l sign_l decl_l_l caller_lab=
 	    |"" -> id
 	    |_ -> caller_lab ^ (Char.escaped sep) ^ id in
 	  let asm = asm
-		    ++ encode_expression expr (map_l,sign_l,decl_l_l) caller_lab
+		    ++ encode_expression expr (map_l,(sign_l),decl_l_l) caller_lab
 		    ++ asm_assign in
 	  aux tail asm (add_to_dll head decl_l_l) new_offset
 
@@ -888,21 +888,23 @@ let run_through decl_l cont_tree map_l sign_l decl_l_l =
        match hd.value with
        |Decl_procedure (id,_,decl_li,instr_l)
        |Decl_function (id,_,_,decl_li,instr_l) ->
+
 	 let f_context = Tmap.find id (cont_tree.subtree) in
 	 let f_map_l = (f_context.node)::map_l in
-	 let assign_asm = get_local_alloc_asm id decl_li f_map_l sign_l decl_l_l prefixacc in
-	 (* On se prépare à encoder f, et ses sous fonctions *)
-	 let f_to_encode = (id, prefixacc, instr_l, assign_asm) in
-	 let f_prefix = match prefixacc with
-	   |"" -> id
-	   |_ -> prefixacc ^ (Char.escaped sep) ^ id in
-	 
+
 	 let f_sign_l = match search id map_l with
 	   |Some(dt,_) -> begin match dt with
 				|Val(Function(a,b)) -> (a,b)::sign_l
 				|_ -> failwith "should not happen l962"
 			  end
 	   |_ -> failwith "should not happen l964" in
+	 let assign_asm = get_local_alloc_asm id decl_li f_map_l f_sign_l decl_l_l prefixacc in
+	 (* On se prépare à encoder f, et ses sous fonctions *)
+	 let f_to_encode = (id, prefixacc, instr_l, assign_asm) in
+	 let f_prefix = match prefixacc with
+	   |"" -> id
+	   |_ -> prefixacc ^ (Char.escaped sep) ^ id in
+	 
 	 let next_asm = aux decl_li f_context f_map_l f_sign_l ([]::decl_l_l) asmacc f_prefix in
 
 	 aux tl cont_tree map_l sign_l decl_l_l
